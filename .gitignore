@@ -4,6 +4,12 @@
 /node_modules
 /.pnp
 .pnp.js
+/.venv
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+!.env.example
 
 # testing
 /coverage
