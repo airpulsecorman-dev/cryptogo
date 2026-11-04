@@ -45,12 +45,17 @@ def canonical_ton_address(address: str) -> Address:
     return parsed
 
 
-def _state_init_code_and_address(state_init_boc: str, address: Address) -> tuple[str, str]:
+def _state_init_code_and_address(
+    state_init_boc: str, address: Address
+) -> tuple[str, str]:
     try:
         serialized = base64.b64decode(state_init_boc, validate=True)
         if not serialized or len(serialized) > 16_384:
             raise ValueError("StateInit inválido.")
-        state_init = Cell.one_from_boc(serialized)
+        try:
+            state_init = Cell.one_from_boc(serialized)
+        except Exception as error:
+            raise ValueError("StateInit de TON inválido.") from error
         state = state_init.begin_parse()
         if state.read_bit():
             state.skip_bits(5)
@@ -105,7 +110,10 @@ def _toncenter_call(
         raise RuntimeError("No se pudo verificar la billetera TON.") from error
     if not isinstance(result, dict) or result.get("ok") is not True:
         raise RuntimeError("El proveedor TON no pudo verificar la billetera.")
-    return result.get("result", {})
+    response_result = result.get("result")
+    if not isinstance(response_result, dict):
+        raise RuntimeError("El proveedor TON devolvió una respuesta inválida.")
+    return response_result
 
 
 def _ton_wallet_public_key(
@@ -122,15 +130,14 @@ def _ton_wallet_public_key(
     if account.get("state") != "active" or not account.get("code"):
         raise ValueError("La billetera Telegram debe estar activa en la red.")
     try:
-        active_code = Cell.one_from_boc(base64.b64decode(account["code"], validate=True))
-    except (binascii.Error, IndexError, TypeError) as error:
+        active_code_boc = base64.b64decode(account["code"], validate=True)
+        active_code = Cell.one_from_boc(active_code_boc)
+    except Exception as error:
         raise RuntimeError("El proveedor TON devolvió un código inválido.") from error
     if active_code.bytes_hash().hex() != WALLET_TG_CODE_HASH:
         raise ValueError("El código activo no corresponde a Telegram Wallet.")
 
-    public_key_result = _toncenter_call(
-        settings, network, "runGetMethod", raw_address
-    )
+    public_key_result = _toncenter_call(settings, network, "runGetMethod", raw_address)
     stack = public_key_result.get("stack")
     if not isinstance(stack, list) or not stack:
         raise RuntimeError("El proveedor TON no devolvió la clave pública.")
@@ -139,9 +146,11 @@ def _ton_wallet_public_key(
     if not isinstance(value, str):
         raise RuntimeError("El proveedor TON devolvió una clave pública inválida.")
     try:
-        public_key_int = int(value, 0)
+        public_key_int = int(value, 16) if value.startswith("0x") else int(value)
     except ValueError as error:
-        raise RuntimeError("El proveedor TON devolvió una clave pública inválida.") from error
+        raise RuntimeError(
+            "El proveedor TON devolvió una clave pública inválida."
+        ) from error
     if not 0 <= public_key_int < 2**256:
         raise RuntimeError("El proveedor TON devolvió una clave pública inválida.")
     return public_key_int.to_bytes(32, "big")
@@ -163,18 +172,18 @@ def verify_ton_proof(
     if proof.payload != expected_payload:
         raise ValueError("El desafío TON no coincide.")
     domain_bytes = proof.domain.value.encode("utf-8")
-    if (
-        proof.domain.value != expected_domain
-        or proof.domain.lengthBytes != len(domain_bytes)
+    if proof.domain.value != expected_domain or proof.domain.lengthBytes != len(
+        domain_bytes
     ):
         raise ValueError("El dominio de la prueba TON no coincide.")
     now = int(time.time())
-    if proof.timestamp > now + 30 or now - proof.timestamp > settings.wallet_auth_max_age_seconds:
+    if (
+        proof.timestamp > now + 30
+        or now - proof.timestamp > settings.wallet_auth_max_age_seconds
+    ):
         raise ValueError("La prueba de la billetera TON expiró.")
 
-    public_key = _ton_wallet_public_key(
-        settings, network, address, proof.state_init
-    )
+    public_key = _ton_wallet_public_key(settings, network, address, proof.state_init)
     if claimed_public_key and claimed_public_key.lower() != public_key.hex():
         raise ValueError("La clave pública TON no coincide.")
 

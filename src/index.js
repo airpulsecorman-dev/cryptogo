@@ -3,11 +3,20 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { TonConnectUIProvider } from '@tonconnect/ui-react';
+
+const appBaseUrl = process.env.PUBLIC_URL || window.location.origin;
+const manifestUrl = new URL(
+  'tonconnect-manifest.json',
+  `${appBaseUrl.replace(/\/?$/, '/')}`,
+).toString();
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <App />
+    <TonConnectUIProvider manifestUrl={manifestUrl}>
+      <App />
+    </TonConnectUIProvider>
   </React.StrictMode>
 );
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import MapView from "./MapView";
 import { api, createIdempotencyKey, developmentAuthEnabled } from "./api";
+import WalletLogin from "./WalletLogin";
 
 const sections = [
   { id: "map", icon: "⌖", label: "Mapa" },
@@ -16,6 +17,7 @@ function App() {
   const [player, setPlayer] = useState(null);
   const [authenticationError, setAuthenticationError] = useState("");
   const [authenticating, setAuthenticating] = useState(true);
+  const [telegramAvailable, setTelegramAvailable] = useState(false);
   const [position, setPosition] = useState(null);
   const [mapQueryPosition, setMapQueryPosition] = useState(null);
   const [locationMessage, setLocationMessage] = useState("");
@@ -50,20 +52,7 @@ function App() {
           return;
         }
         const initData = window.Telegram?.WebApp?.initData;
-        if (!initData) {
-          if (active)
-            setAuthenticationError(
-              "Abre Crypto Go desde Telegram para iniciar sesión.",
-            );
-          return;
-        }
-        try {
-          window.Telegram?.WebApp?.ready();
-          const authenticatedPlayer = await api.authenticateTelegram(initData);
-          if (active) setPlayer(authenticatedPlayer);
-        } catch (authError) {
-          if (active) setAuthenticationError(authError.message);
-        }
+        if (active) setTelegramAvailable(Boolean(initData));
       } finally {
         if (active) setAuthenticating(false);
       }
@@ -73,6 +62,35 @@ function App() {
     return () => {
       active = false;
     };
+  }, []);
+
+  const signInWithTelegram = useCallback(async () => {
+    const initData = window.Telegram?.WebApp?.initData;
+    if (!initData) {
+      setAuthenticationError(
+        "Abre Crypto Go desde Telegram para iniciar sesión con Telegram.",
+      );
+      return;
+    }
+    setAuthenticating(true);
+    setAuthenticationError("");
+    try {
+      window.Telegram?.WebApp?.ready();
+      setPlayer(await api.authenticateTelegram(initData));
+    } catch (error) {
+      setAuthenticationError(error.message);
+    } finally {
+      setAuthenticating(false);
+    }
+  }, []);
+
+  const handleWalletAuthenticated = useCallback((authenticatedPlayer) => {
+    setAuthenticationError("");
+    setPlayer(authenticatedPlayer);
+  }, []);
+
+  const handleWalletError = useCallback((message) => {
+    setAuthenticationError(message);
   }, []);
 
   useEffect(() => {
@@ -242,7 +260,11 @@ function App() {
     return (
       <AuthenticationScreen
         error={authenticationError}
+        onTelegramLogin={signInWithTelegram}
         onDevelopmentLogin={signInAsDeveloper}
+        onWalletAuthenticated={handleWalletAuthenticated}
+        onWalletError={handleWalletError}
+        showTelegramLogin={telegramAvailable}
         showDevelopmentLogin={developmentAuthEnabled}
       />
     );
@@ -401,7 +423,11 @@ function App() {
 
 function AuthenticationScreen({
   error,
+  onTelegramLogin,
   onDevelopmentLogin,
+  onWalletAuthenticated,
+  onWalletError,
+  showTelegramLogin,
   showDevelopmentLogin,
 }) {
   return (
@@ -415,11 +441,29 @@ function AuthenticationScreen({
           Crypto <span>Go</span>
         </h1>
         <p className="subheading">
-          Inicia sesión con Telegram para continuar tu aventura.
+          Elige cómo iniciar sesión para continuar tu aventura.
         </p>
         {error && (
           <p className="auth-error" role="alert">
             {error}
+          </p>
+        )}
+        {showTelegramLogin && (
+          <button className="collect-button" onClick={onTelegramLogin}>
+            Continuar con Telegram
+          </button>
+        )}
+        <div className="auth-divider">
+          <span>O CONECTA TU BILLETERA</span>
+        </div>
+        <WalletLogin
+          onAuthenticated={onWalletAuthenticated}
+          onError={onWalletError}
+        />
+        {!showTelegramLogin && (
+          <p className="wallet-login-note">
+            El acceso con Telegram está disponible al abrir Crypto Go desde la
+            aplicación de Telegram.
           </p>
         )}
         {showDevelopmentLogin && (

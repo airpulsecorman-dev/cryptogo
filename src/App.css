@@ -1860,8 +1860,69 @@ p {
 }
 
 .auth-card .collect-button {
-  margin-top: 20px;
+  margin-top: 14px;
   width: 100%;
+}
+
+.wallet-login {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  width: 100%;
+}
+
+.wallet-login-button {
+  background: #192330;
+  border: 1px solid #354354;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 12px;
+  transition: background .15s ease, border-color .15s ease;
+  width: 100%;
+}
+
+.wallet-login-button:hover {
+  background: #233244;
+  border-color: #6b819a;
+}
+
+.wallet-login-button:disabled {
+  cursor: wait;
+  opacity: .6;
+}
+
+.ton-wallet-button {
+  border-color: #315a82;
+}
+
+.auth-divider {
+  align-items: center;
+  color: #788697;
+  display: flex;
+  font-size: 8px;
+  font-weight: 700;
+  gap: 10px;
+  letter-spacing: 1px;
+  margin-top: 19px;
+  width: 100%;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  background: var(--line);
+  content: "";
+  flex: 1;
+  height: 1px;
+}
+
+.wallet-login-note {
+  color: #8290a4;
+  font-size: 10px;
+  line-height: 1.5;
+  margin: 11px 0 0;
 }
 
 .section-error {

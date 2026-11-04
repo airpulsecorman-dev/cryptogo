@@ -24,6 +24,19 @@ jest.mock(
     },
 );
 
+jest.mock(
+  "./WalletLogin",
+  () =>
+    function TestWalletLogin() {
+      return (
+        <div>
+          <button>Conectar billetera EVM</button>
+          <button>Conectar Telegram Wallet</button>
+        </div>
+      );
+    },
+);
+
 jest.mock("./api", () => ({
   api: {
     profile: jest.fn(),
@@ -86,7 +99,7 @@ beforeEach(() => {
   api.leaderboard.mockResolvedValue({ items: [] });
 });
 
-test("requires a valid backend session and authenticates with Telegram initData", async () => {
+test("offers Telegram or wallet login and authenticates with Telegram initData", async () => {
   api.profile.mockRejectedValueOnce({ status: 401 });
   api.authenticateTelegram.mockResolvedValue(player);
   Object.defineProperty(window, "Telegram", {
@@ -102,6 +115,17 @@ test("requires a valid backend session and authenticates with Telegram initData"
 
   render(<App />);
 
+  expect(await screen.findByRole("button", { name: /continuar con telegram/i }))
+    .toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /conectar billetera evm/i }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /conectar telegram wallet/i }),
+  ).toBeInTheDocument();
+  expect(api.authenticateTelegram).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: /continuar con telegram/i }));
   await waitFor(() =>
     expect(api.authenticateTelegram).toHaveBeenCalledWith("signed-init-data"),
   );
@@ -120,7 +144,10 @@ test("a player without a Telegram session sees an authentication state, not demo
     await screen.findByRole("heading", { name: /crypto go/i }),
   ).toBeInTheDocument();
   expect(
-    screen.getByText(/abre crypto go desde telegram/i),
+    screen.getByText(/acceso con telegram está disponible/i),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /conectar billetera evm/i }),
   ).toBeInTheDocument();
   expect(screen.queryByText(/btc añadido/i)).not.toBeInTheDocument();
 });
