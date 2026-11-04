@@ -63,6 +63,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ init_data: initData }),
     }),
+  createEvmChallenge: (address, chainId) =>
+    request("/auth/evm/challenge", {
+      method: "POST",
+      body: JSON.stringify({ address, chain_id: chainId }),
+    }),
+  authenticateEvm: (address, chainId, challenge, signature) =>
+    request("/auth/evm/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        address,
+        chain_id: chainId,
+        nonce: challenge.nonce,
+        signature,
+      }),
+    }),
+  createTonChallenge: () =>
+    request("/auth/ton/challenge", { method: "POST" }),
+  authenticateTon: (wallet, proof) =>
+    request("/auth/ton/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        address: wallet.address,
+        network: wallet.chain,
+        public_key: wallet.publicKey,
+        proof: { ...proof, state_init: wallet.walletStateInit },
+      }),
+    }),
   authenticateDevelopment: () =>
     request("/auth/dev", {
       method: "POST",
