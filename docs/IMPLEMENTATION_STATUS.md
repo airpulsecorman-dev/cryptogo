@@ -1,61 +1,192 @@
-# Crypto Go — Estado de implementación
+# Crypto Go — Verificación técnica de la primera entrega
 
-## Alcance de la auditoría
+**Verificado:** 2026-11-04
+**Alcance:** código del cliente React, API FastAPI, modelos, migración, Compose y pruebas del repositorio.
+**Regla de estado:** solo se usan los estados autorizados. «Probado» distingue las pruebas ejecutadas con SQLite de la integración PostgreSQL/PostGIS, que no estuvo disponible.
 
-Revisión del repositorio en su estado inicial. La aplicación es una SPA de
-Create React App con una única pantalla principal, sin servicios de API ni
-backend. `README.md` describe una arquitectura prevista, no una arquitectura
-implementada. Las pruebas existentes verifican el comportamiento de
-demostración y no prueban persistencia ni operaciones de servidor.
+## Entorno y resultados de ejecución
 
-## Estado por módulo en la auditoría inicial
+- `docker info`: Docker no disponible. No se pudo iniciar Docker Compose.
+- PostgreSQL en `127.0.0.1:5432`: no accesible; `psql` no está instalado.
+- Redis en `127.0.0.1:6379`: no accesible.
+- `POSTGRES_TEST_DATABASE_URL`: no configurada.
+- Node.js: `v23.7.0`.
+- `yarn build`: correcto; CRA informa una advertencia de dependencia dinámica, no un fallo de compilación.
+- `CI=true yarn test --watchAll=false --runInBand`: **7 pruebas aprobadas**.
+- `.venv/bin/python -m pytest backend/tests -q`: **13 aprobadas, 1 omitida**. La omitida es la prueba concurrente que necesita PostgreSQL/PostGIS.
+- `cd backend && ../.venv/bin/python -m alembic upgrade head --sql`: **correcto**; generó SQL PostgreSQL para 12 tablas de la aplicación y `alembic_version`. Esto no ejecuta la migración en una base de datos.
+- `git diff --check`: correcto.
 
-| Módulo | Estado actual | Problemas encontrados | Archivos involucrados | Trabajo necesario | Pruebas requeridas |
-| --- | --- | --- | --- | --- | --- |
-| Aplicación web y navegación | Parcial: React permite navegar entre cinco pantallas | Las pantallas muestran saldos, perfiles y estadísticas estáticos; la navegación cambia estado local | `src/App.js`, `src/App.css`, `src/index.js` | Conservar el diseño y conectar las pantallas a respuestas reales; mostrar carga, error y vacío | Pruebas de navegación, carga, errores y datos de API |
-| Mapa y ubicación | No implementado: el mapa es una ilustración CSS | Coordenadas y marcadores ficticios; la geolocalización solo presenta un mensaje de demostración | `src/App.js`, `src/App.css`, `package.json` | Sustituir la ilustración por MapLibre; pedir GPS solo tras acción del usuario; consultar apariciones dentro de zonas habilitadas | GPS permitido/denegado, mapa, búsqueda geográfica PostGIS y zonas |
-| Autenticación | No implementada | No hay validación de Telegram, sesión ni rutas privadas | `src/App.js`, `README.md` | Verificar `initData` en servidor, expirar datos antiguos y emitir sesión HttpOnly; mantener una ruta de desarrollo aislada | Firma válida/inválida, expiración, sesión, registro y rechazo del login de desarrollo en producción |
-| API | No existe | No hay aplicación HTTP, contrato versionado ni validación compartida | Repositorio; contrato previsto en `README.md` | Crear FastAPI modular bajo `/api/v1`, validación de entradas y manejo central de errores | Pruebas de endpoints, autorización, errores y esquema OpenAPI |
-| Persistencia | No existe | No hay PostgreSQL, modelos ni migraciones | Repositorio; diseño previsto en `README.md` | PostgreSQL/PostGIS, SQLAlchemy y Alembic para usuarios, perfiles, zonas, catálogo, apariciones, colecciones y libro contable | Migraciones, creación/recuperación del perfil y persistencia tras reiniciar |
-| Zonas y apariciones | No implementado | Los tesoros se declaran en un arreglo local; no hay expiración, densidad ni estado compartido | `src/App.js`, `README.md` | Consultar apariciones disponibles desde la base de datos; provisionar zonas verificadas y puntos fijos; generar dinámicas en un proceso servidor con límites | Visibilidad, geocerca, densidad, expiración y cambios de estado |
-| Recolección y antifraude | No implementado | El clic acredita puntos en React sin comprobar identidad, distancia, disponibilidad o duplicados | `src/App.js`, `README.md` | Hacer la operación atómica en backend con bloqueo de fila, distancia PostGIS, precisión, anomalías e idempotencia | Radio máximo, expiración, idempotencia, doble recolección y concurrencia |
-| Inventario, puntos y XP | No implementado | Conteos y saldo se inicializan en memoria; no hay historial auditable ni progresión persistente | `src/App.js`, `README.md` | Derivar el inventario de colecciones; registrar puntos y XP como movimientos inmutables; calcular nivel en backend | Recompensas, nivel, inventario, historial y persistencia entre sesiones |
-| Misiones y ranking | No implementado | Misiones y jugadores están hardcodeados en el componente | `src/App.js` | Consultar datos del backend; presentar claramente un estado vacío cuando no existan misiones o jugadores | Respuestas vacías, orden del ranking y datos de jugador |
-| Configuración y despliegue | No implementado | No hay Docker Compose, configuración de entorno ni proceso de despliegue del API | `package.json`, `.gitignore`, `README.md` | Documentar variables sin secretos y añadir servicios reproducibles de API, PostgreSQL/PostGIS y Redis | Arranque local, readiness, migraciones y comprobación de secretos |
-| Pruebas automatizadas | Parcial: 11 pruebas de UI de demostración pasan | No prueban autenticación, APIs, base de datos, mapas reales ni concurrencia | `src/App.test.js`, `src/setupTests.js` | Añadir pruebas de backend y adaptar las de UI al contrato conectado; ejecutar integraciones PostGIS al disponer de PostgreSQL | Pytest, pruebas React y, con el entorno disponible, integración PostgreSQL/PostGIS concurrente |
+Las pruebas del backend usan FastAPI `TestClient` y SQLite real con SQLAlchemy; no sustituyen la prueba de PostGIS ni verifican bloqueos de filas de PostgreSQL. Las pruebas React sustituyen el cliente API con mocks y, por tanto, no prueban una conexión HTTP entre los dos procesos.
 
-## Estado después de la primera implementación
+## Verificación por funcionalidad
 
-| Módulo | Estado | Implementado | Pendiente / validación |
-| --- | --- | --- | --- |
-| Frontend y mapa | Implementado con MapLibre, ubicación bajo demanda y consultas de zonas/apariciones | Inicio de sesión conectado a sesión del backend, actualizaciones al mover el mapa, estados de carga/error/vacío | Probar en Telegram Mini App desplegada con API HTTPS y permisos GPS reales |
-| Autenticación | Implementado | HMAC Telegram `initData`, vencimiento, sesión opaca en cookie HttpOnly; login de desarrollo solo con doble habilitación y entorno de desarrollo | Configurar token real del bot, dominios y política de cookies en despliegue |
-| Perfil, inventario y economía | Implementado | Perfil persistente; historial, libro de puntos/XP, colección e idempotencia transaccional | Probar persistencia en PostgreSQL real |
-| Geografía y apariciones | Implementación disponible | Consultas PostGIS; zonas/puntos provisionados por operador; worker genera apariciones dinámicas en puntos configurados y expira las vencidas | Aprovisionar ubicaciones verificadas; probar con PostGIS real y comprobar criterios de densidad operativa |
-| Recolección | Implementada | Backend valida estado, expiración, geocerca, distancia y señales de precisión/tiempo; bloqueo transaccional y recompensa calculada en servidor | Ejecutar prueba de concurrencia en PostgreSQL; SQLite no prueba el bloqueo de filas |
-| Misiones y ranking | Parcial | Endpoints y pantallas consultan el backend; no inventan datos para misiones vacías | Definir y persistir reglas/progreso de misiones; ranking solo tendrá datos con jugadores reales |
-| Infraestructura | Implementación local disponible | Compose para API, PostgreSQL/PostGIS, Redis y worker; migración Alembic y variables de ejemplo | Docker no está disponible en este entorno; no se ha ejecutado el stack ni la migración en una instancia real |
-| Pruebas | Parcial | Pruebas de API con SQLite y pruebas de UI; prueba concurrente optativa para PostgreSQL | Ejecutar todas tras últimos cambios; correr la prueba PostGIS/concurrencia en entorno Docker o PostgreSQL |
+### Integración React → API
 
-## Observaciones del entorno
+- **Estado:** Implementado sin prueba de integración.
+- **Archivos:** `src/api.js`, `src/App.js`, `src/MapView.js`, `package.json`.
+- **Endpoints:** `/api/v1/auth/*`, `/api/v1/players/me`, `/api/v1/collectibles/*`, `/api/v1/zones/nearby`, `/api/v1/inventory`, `/api/v1/missions`, `/api/v1/leaderboard`.
+- **Tablas:** las que correspondan a cada endpoint; ninguna accedida desde React.
+- **Prueba ejecutada:** build y 7 pruebas React. El build pasó; las pruebas verifican estados de UI, pero `src/App.test.js` simula `./api`.
+- **Pendiente:** ejecutar cliente y API juntos con `REACT_APP_API_BASE_URL` real, sesión/cookie y servicios disponibles. En producción, si falta esa variable, el cliente muestra error; no hay fallback de datos simulados.
 
-- La raíz existente es Create React App/JavaScript, no Next.js/TypeScript. Se
-  conserva para evitar una sustitución de tecnología no necesaria.
-- El repositorio de trabajo incluye un `src.zip` sin seguimiento. La auditoría
-  no lo modifica.
-- En esta auditoría no se encontraron `Docker`, `psql`, servicios de base de
-  datos ni variables de Telegram. Por ello, las pruebas locales no pueden
-  afirmar que una instancia real de PostgreSQL/PostGIS o Telegram esté
-  operativa.
-- No se crearán zonas ni posiciones geográficas ficticias. La búsqueda real
-  devolverá vacío hasta que un operador proporcione y habilite zonas y puntos
-  verificados.
+### FastAPI y capa HTTP
 
-## Entrega incremental
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/main.py`, `backend/app/routers/auth.py`, `backend/app/routers/game.py`, `backend/app/schemas.py`.
+- **Endpoints:** `GET /health/live`, `GET /api/v1/health/live`, `GET /api/v1/health/ready` y rutas `/api/v1/*`.
+- **Tablas:** depende de la ruta; comprobación de salud usa la conexión configurada.
+- **Prueba ejecutada:** `TestClient` en la suite backend; autenticación, perfil, geografía, colección e inventario respondieron con los resultados esperados en pruebas.
+- **Pendiente:** readiness con PostgreSQL y Redis reales; no se inició el servicio integrado.
 
-La primera entrega implementa el contrato de autenticación, perfil, mapa,
-recolección e inventario, además de infraestructura local y pruebas. Misiones
-reales requieren definiciones de producto persistidas y se mostrarán vacías en
-lugar de inventar progreso. La activación operativa aún requiere credenciales
-de entorno, aprovisionar puntos seguros y ejecutar las verificaciones de
-integración con PostgreSQL/PostGIS.
+### SQLAlchemy y persistencia de aplicación
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/database.py`, `backend/app/models.py`, `backend/tests/conftest.py`, `backend/tests/test_game.py`.
+- **Endpoints:** rutas de autenticación y juego bajo `/api/v1`.
+- **Tablas:** `users`, `player_profiles`, `auth_sessions`, `zones`, `collectibles`, `spawn_points`, `spawn_instances`, `collections`, `point_transactions`, `xp_transactions`, `idempotency_records`, `anti_cheat_events`.
+- **Prueba ejecutada:** suite backend sobre SQLite: escritura, consulta, colección, inventario, libro contable y recuperación del perfil tras autenticar de nuevo; 13 aprobadas.
+- **Pendiente:** validar las mismas operaciones contra PostgreSQL/PostGIS; la prueba con SQLite no certifica el dialecto ni el bloqueo de filas PostgreSQL.
+
+### PostgreSQL y PostGIS
+
+- **Estado:** Bloqueado por configuración externa.
+- **Archivos:** `docker-compose.yml`, `backend/app/config.py`, `backend/app/database.py`, `backend/app/geo.py`, `backend/app/routers/game.py`, `backend/migrations/versions/0001_game_core.py`.
+- **Endpoints:** `GET /api/v1/collectibles/nearby`, `GET /api/v1/zones/nearby`, `POST /api/v1/collectibles/collect`, `GET /api/v1/health/ready`.
+- **Tablas:** las tablas de SQLAlchemy anteriores; la migración crea PostGIS y un índice espacial GiST para apariciones.
+- **Prueba ejecutada:** comprobación de puerto y configuración, y generación offline del SQL de Alembic. No hay servidor local; la prueba `test_only_one_player_collects_a_spawn_concurrently` se omitió por falta de `POSTGRES_TEST_DATABASE_URL`.
+- **Resultado y pendiente:** no se verificó conexión, extensión PostGIS, consulta espacial real, migración aplicada ni concurrencia. Hace falta un PostgreSQL con PostGIS accesible y una URL de prueba dedicada.
+
+### Alembic y migraciones
+
+- **Estado:** Implementado sin prueba de integración.
+- **Archivos:** `backend/alembic.ini`, `backend/migrations/env.py`, `backend/migrations/versions/0001_game_core.py`, `Dockerfile.api`, `docker-compose.yml`.
+- **Endpoints:** no aplica.
+- **Tablas:** 12 tablas de aplicación y `alembic_version`.
+- **Prueba ejecutada:** `cd backend && ../.venv/bin/python -m alembic upgrade head --sql`; Alembic renderizó la migración para PostgreSQL y enumeró la revisión `0001_game_core`.
+- **Pendiente:** ejecutar `alembic upgrade head` en PostgreSQL/PostGIS y comparar el esquema creado con los modelos. El modo `--sql` no prueba permisos, extensiones ni ejecución.
+
+### Redis
+
+- **Estado:** Bloqueado por configuración externa.
+- **Archivos:** `docker-compose.yml`, `.env.example`, `backend/app/main.py`, `backend/app/routers/auth.py`, `backend/app/routers/game.py`.
+- **Endpoints:** `POST /api/v1/auth/telegram`, `POST /api/v1/collectibles/collect`, `GET /api/v1/health/ready`.
+- **Tablas:** ninguna; Redis almacena contadores temporales de limitación de solicitudes.
+- **Prueba ejecutada:** inspección de conexión local; Redis no escucha en `127.0.0.1:6379`. La configuración de prueba usa `APP_ENV=test`, que omite el rate limit y el ping de Redis.
+- **Pendiente:** verificar rate limiting, disponibilidad y readiness contra Redis real. La aplicación falla explícitamente con 503 cuando Redis no está disponible en esos flujos.
+
+### Docker Compose
+
+- **Estado:** Bloqueado por configuración externa.
+- **Archivos:** `docker-compose.yml`, `Dockerfile.api`, `.env.example`.
+- **Endpoints:** API expone el puerto 8000 en la configuración Compose.
+- **Tablas:** PostgreSQL/PostGIS administra las tablas de aplicación; Redis no usa tablas SQL.
+- **Prueba ejecutada:** inspección de la configuración y `docker info`; el daemon Docker no está disponible.
+- **Pendiente:** no se pudieron validar `compose config`, arranque, healthchecks, migración inicial ni worker en contenedores. Se requiere Docker operativo y `POSTGRES_PASSWORD` local configurada; `.env.example` contiene solo un marcador, no una credencial.
+
+### Autenticación de Telegram
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/security.py`, `backend/app/routers/auth.py`, `backend/app/schemas.py`, `backend/tests/conftest.py`, `backend/tests/test_game.py`.
+- **Endpoints:** `POST /api/v1/auth/telegram`, `POST /api/v1/auth/dev`.
+- **Tablas:** `users`, `player_profiles`, `auth_sessions`.
+- **Prueba ejecutada:** login con `initData` firmado por la clave de prueba; se rechazan firma manipulada, datos incompletos y datos expirados. La prueba de rutas protegidas recibe 401 sin sesión.
+- **Pendiente:** no se probó con Telegram ni con un token real del bot; `TELEGRAM_BOT_TOKEN` está vacío en `.env.example`. `/auth/dev` solo está habilitado con entorno `development` y `DEV_AUTH_ENABLED`; en el cliente también requiere `REACT_APP_ENABLE_DEV_AUTH`.
+
+### Sesiones
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/security.py`, `backend/app/routers/auth.py`, `backend/app/config.py`, `backend/tests/test_game.py` y `backend/tests/conftest.py`.
+- **Endpoints:** `POST /api/v1/auth/telegram`, `POST /api/v1/auth/logout`; las rutas de juego validan la cookie.
+- **Tablas:** `auth_sessions`, `users`, `player_profiles`.
+- **Prueba ejecutada:** se autentica, se conserva la cookie, se crea una nueva instancia de la API sobre la misma base SQLite y se recupera el mismo perfil; luego logout invalida la sesión. También se comprueba el rechazo sin sesión.
+- **Pendiente:** política de cookies `Secure`, dominio HTTPS y configuración de despliegue no se probaron en producción. La configuración de producción exige cookie segura y token de Telegram.
+
+### Perfil del jugador
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/routers/auth.py`, `backend/app/routers/game.py`, `backend/app/models.py`, `src/api.js`, `src/App.js`.
+- **Endpoints:** `GET /api/v1/players/me`, autenticación en `/api/v1/auth/telegram`.
+- **Tablas:** `users`, `player_profiles`.
+- **Prueba ejecutada:** registro/recuperación del mismo usuario, perfil protegido, persistencia de puntos/XP tras renovar sesión y recuperación tras reiniciar la API con SQLite.
+- **Pendiente:** comprobarlo con datos de PostgreSQL y una sesión real de Telegram.
+
+### MapLibre
+
+- **Estado:** Implementado sin prueba de integración.
+- **Archivos:** `src/MapView.js`, `src/App.js`, `src/App.css`, `package.json`.
+- **Endpoints:** zonas y apariciones se consumen desde `/api/v1/zones/nearby` y `/api/v1/collectibles/nearby`; el estilo cartográfico usa OpenFreeMap por defecto o `REACT_APP_MAP_STYLE_URL`.
+- **Tablas:** `zones`, `spawn_instances`, `collectibles`.
+- **Prueba ejecutada:** build de producción pasó. Las pruebas React reemplazan `MapView`; no probaron WebGL, proveedor de tiles ni renderizado de navegador.
+- **Pendiente:** validar el mapa en navegador y la disponibilidad/uso del proveedor cartográfico.
+
+### Geolocalización y consulta de zonas/apariciones
+
+- **Estado:** Parcial.
+- **Archivos:** `src/App.js`, `src/api.js`, `src/MapView.js`, `backend/app/routers/game.py`, `backend/app/geo.py`, `backend/app/models.py`.
+- **Endpoints:** `GET /api/v1/zones/nearby`, `GET /api/v1/collectibles/nearby`.
+- **Tablas:** `zones`, `spawn_instances`, `spawn_points`, `collectibles`.
+- **Prueba ejecutada:** tests backend verifican una aparición guardada y una zona habilitada mediante SQLite; tests UI simulan permisos GPS. El cliente envía coordenadas a las consultas y al POST de recolección.
+- **Pendiente:** permiso GPS real, consulta de geografía PostGIS y ubicación real no se probaron. En producción no hay zonas ni apariciones iniciales: un operador debe provisionar polígonos y puntos aprobados. No se crean coordenadas de juego por defecto.
+
+### Recolección
+
+- **Estado:** Parcial.
+- **Archivos:** `src/api.js`, `src/App.js`, `backend/app/routers/game.py`, `backend/app/geo.py`, `backend/app/models.py`, `backend/app/schemas.py`, `backend/tests/test_game.py`.
+- **Endpoints:** `POST /api/v1/collectibles/collect`.
+- **Tablas:** `spawn_instances`, `collectibles`, `zones`, `collections`, `player_profiles`, `point_transactions`, `xp_transactions`, `idempotency_records`, `anti_cheat_events`.
+- **Prueba ejecutada:** SQLite verifica recolección válida, rechazo por expiración (410), rechazo fuera del radio (403), validación de edad/precisión y acreditación de recompensas.
+- **Pendiente:** no se probó la operación sobre PostgreSQL/PostGIS ni con GPS real. La prueba de concurrencia está omitida por no disponer de PostGIS.
+
+### Transacciones e idempotencia
+
+- **Estado:** Parcial.
+- **Archivos:** `backend/app/routers/game.py`, `backend/app/models.py`, `backend/tests/test_game.py`, `backend/tests/test_concurrency_postgres.py`, `src/api.js`, `src/App.js`.
+- **Endpoints:** `POST /api/v1/collectibles/collect` con `Idempotency-Key`.
+- **Tablas:** `spawn_instances`, `collections`, `player_profiles`, `point_transactions`, `xp_transactions`, `idempotency_records`.
+- **Prueba ejecutada:** con SQLite, una repetición idéntica devuelve la misma respuesta sin duplicar movimientos; una misma clave con otro cuerpo se rechaza; otro jugador no recoge el objeto ya reclamado. La prueba PostGIS que exige una sola recompensa simultánea se omitió.
+- **Pendiente:** no certificar concurrencia con SQLite. Ejecutar `backend/tests/test_concurrency_postgres.py` contra una base PostGIS dedicada antes de afirmar atomicidad bajo sesiones simultáneas.
+
+### Inventario
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/routers/game.py`, `backend/app/models.py`, `backend/app/schemas.py`, `src/api.js`, `src/App.js`, `backend/tests/test_game.py`.
+- **Endpoints:** `GET /api/v1/inventory`.
+- **Tablas:** `collections`, `collectibles`, `player_profiles`, `point_transactions`, `xp_transactions`.
+- **Prueba ejecutada:** una recolección válida aparece en el inventario, el conteo, historial y totales se leen de SQLAlchemy/SQLite.
+- **Pendiente:** repetir en PostgreSQL; el navegador no tuvo prueba contra una API viva.
+
+### Libro de puntos y sistema de XP
+
+- **Estado:** Implementado y probado.
+- **Archivos:** `backend/app/routers/game.py`, `backend/app/routers/auth.py`, `backend/app/models.py`, `backend/tests/test_game.py`, `src/api.js`, `src/App.js`.
+- **Endpoints:** `GET /api/v1/players/me`, `GET /api/v1/players/me/ledger`, respuesta de `POST /api/v1/collectibles/collect`.
+- **Tablas:** `player_profiles`, `point_transactions`, `xp_transactions`, `collections`, `collectibles`.
+- **Prueba ejecutada:** recompensas se leen del catálogo del servidor, se guardan en ambos libros y actualizan perfil/inventario; el test verifica 10 puntos, 10 XP y persistencia en SQLite.
+- **Pendiente:** concurrencia y persistencia en PostgreSQL no verificadas. El nivel se deriva en backend del XP persistido; el frontend solo presenta los valores recibidos.
+
+### Misiones y ranking
+
+- **Estado:** Parcial.
+- **Archivos:** `backend/app/routers/game.py`, `backend/app/schemas.py`, `src/api.js`, `src/App.js`, `src/App.test.js`.
+- **Endpoints:** `GET /api/v1/missions`, `GET /api/v1/leaderboard`.
+- **Tablas:** las misiones no tienen modelo ni tabla; ranking consulta `player_profiles` y `users`.
+- **Prueba ejecutada:** test backend confirma respuesta vacía explícita de misiones; test UI verifica el estado vacío usando API simulada. No hay test backend específico del ranking.
+- **Pendiente:** no existe persistencia/progreso de misiones. El endpoint de ranking está implementado como consulta SQL, pero no se verificó con jugadores reales ni se debe interpretar el estado vacío de UI como prueba del endpoint.
+
+## Datos estáticos y simulados que permanecen
+
+- La migración inserta un catálogo inicial de BTC, ETH, BNB y SOL en `collectibles`. Son definiciones persistentes del catálogo, no apariciones geográficas. No inserta zonas, coordenadas ni `spawn_instances`.
+- `src/MapView.js` inicia el mapa con un centro fijo `[-78.1834, -1.8312]` y zoom 5 antes de obtener GPS. No se muestra como marcador GPS ni crea coleccionables, pero es una vista inicial estática.
+- El login local es deliberadamente simulado, condicionado a variables de desarrollo y bloqueado por el backend fuera del entorno `development`.
+- No se encontró fallback de perfil, inventario, saldo o apariciones ficticias para producción. La API debe estar configurada; misiones vacías se presentan como vacías.
+
+## Cambios realizados durante la verificación
+
+- Se añadieron `test_game_endpoints_require_an_authenticated_session` y `test_session_and_player_survive_application_restart` en `backend/tests/test_game.py`.
+- Se verificó que todas las rutas de juego requieren sesión y que la cookie/sesión y el perfil SQLite sobreviven al reinicio de la instancia API; logout invalida la cookie persistida.
+- No se reemplazaron las pruebas de producción por mocks ni se añadieron coordenadas o coleccionables de juego.
+
+## Resultado pendiente para cerrar la verificación de producción
+
+Se requiere una instancia accesible de PostgreSQL con PostGIS, Redis y Docker operativo para: aplicar la migración real, validar el esquema y funciones espaciales, iniciar Compose, probar readiness/rate limit y ejecutar la prueba concurrente. También se requiere una configuración de Telegram válida y un navegador con GPS concedido para verificar el flujo de producción completo. Hasta entonces, esas integraciones permanecen bloqueadas o parciales según se indica arriba.

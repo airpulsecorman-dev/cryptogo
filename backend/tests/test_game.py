@@ -1,8 +1,13 @@
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+from fastapi.testclient import TestClient
+
+from app.config import Settings
+from app.main import create_app
 from app.models import (
     AntiCheatEvent,
+    Base,
     Collection,
     Collectible,
     IdempotencyRecord,
@@ -63,6 +68,56 @@ def test_registration_profile_inventory_and_ledger_persist(client):
     assert profile["points"] == 10
     assert profile["total_xp"] == 10
     assert profile["collected_count"] == 1
+
+
+def test_game_endpoints_require_an_authenticated_session(client):
+    protected_gets = (
+        "/api/v1/players/me",
+        "/api/v1/collectibles/nearby?latitude=0&longitude=0",
+        "/api/v1/zones/nearby?latitude=0&longitude=0",
+        "/api/v1/inventory",
+        "/api/v1/missions",
+        "/api/v1/leaderboard",
+        "/api/v1/players/me/ledger",
+    )
+    for path in protected_gets:
+        assert client.get(path).status_code == 401
+
+    spawn_id = create_spawn(client)
+    response = submit_collection(client, spawn_id)
+    assert response.status_code == 401
+
+
+def test_session_and_player_survive_application_restart(tmp_path):
+    database_url = f"sqlite:///{tmp_path / 'cryptogo.sqlite'}"
+    settings = Settings(
+        app_env="test",
+        database_url=database_url,
+        redis_url="redis://localhost:6379/15",
+        telegram_bot_token="test-bot-token",
+        dev_auth_enabled=False,
+        cors_origins="http://localhost:3000",
+    )
+    first_app = create_app(settings)
+    Base.metadata.create_all(first_app.state.engine)
+
+    with TestClient(first_app) as first_client:
+        player = create_player(first_client, 789001, "Restart Player")
+        session_token = first_client.cookies.get(settings.session_cookie_name)
+        assert session_token
+
+    first_app.state.engine.dispose()
+    restarted_app = create_app(settings)
+    with TestClient(restarted_app) as restarted_client:
+        restarted_client.cookies.set(settings.session_cookie_name, session_token)
+        restored = restarted_client.get("/api/v1/players/me")
+        assert restored.status_code == 200
+        assert restored.json()["id"] == player["id"]
+        assert restored.json()["telegram_id"] == 789001
+
+        assert restarted_client.post("/api/v1/auth/logout").status_code == 204
+        assert restarted_client.get("/api/v1/players/me").status_code == 401
+    restarted_app.state.engine.dispose()
 
 
 def test_collect_rejects_location_outside_collection_radius_and_logs_anomaly(client):
