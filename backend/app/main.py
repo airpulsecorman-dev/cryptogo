@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+import logging
+from threading import Lock
 
 import redis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
-import logging
+
 from .config import Settings, get_settings
 from .database import create_session_factory
 from .routers import auth, game
@@ -33,6 +35,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(app_settings.connection_url)
     app.state.engine = app.state.session_factory.kw["bind"]
     app.state.redis = redis.Redis.from_url(app_settings.redis_url, socket_timeout=2)
+    app.state.local_rate_limits = {}
+    app.state.local_rate_limits_lock = Lock()
+    app.state.local_rate_limit_fallback_logged = False
+    app.state.local_rate_limit_cleanup_at = 0
     app.add_middleware(
         CORSMiddleware,
         allow_origins=app_settings.allowed_origins,

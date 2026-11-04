@@ -3,7 +3,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
-import redis
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import AuthChallenge, AuthSession, PlayerProfile, User, WalletIdentity
+from ..rate_limit import increment_rate_limit
 from ..schemas import (
     DevelopmentAuthRequest,
     EvmChallengeRequest,
@@ -37,23 +37,9 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 def _rate_limit(request: Request, key: str, limit: int, window_seconds: int) -> None:
     if request.app.state.settings.app_env == "test":
         return
-    client = request.app.state.redis
     bucket = int(time.time()) // window_seconds
     redis_key = f"rate:{key}:{bucket}"
-    try:
-        count = client.eval(
-            "local count = redis.call('INCR', KEYS[1]); "
-            "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; "
-            "return count",
-            1,
-            redis_key,
-            window_seconds + 1,
-        )
-    except redis.RedisError as error:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "El control de solicitudes no está disponible.",
-        ) from error
+    count = increment_rate_limit(request, redis_key, window_seconds + 1)
     if count > limit:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,

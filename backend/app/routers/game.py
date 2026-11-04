@@ -24,6 +24,7 @@ from ..models import (
     XPTransaction,
     utcnow,
 )
+from ..rate_limit import increment_rate_limit
 from ..schemas import CollectRequest, CollectResponse, InventoryResponse, PlayerResponse
 from ..security import get_current_player
 from .auth import _level_for_xp, _xp_for_next_level, _xp_into_level
@@ -57,21 +58,8 @@ def _log_anomaly(
 def _collect_rate_limit(request: Request, user_id: UUID) -> None:
     if request.app.state.settings.app_env == "test":
         return
-    try:
-        key = f"rate:collect:{user_id}:{int(utcnow().timestamp()) // 60}"
-        count = request.app.state.redis.eval(
-            "local count = redis.call('INCR', KEYS[1]); "
-            "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; "
-            "return count",
-            1,
-            key,
-            61,
-        )
-    except redis.RedisError as error:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "El control de solicitudes no está disponible.",
-        ) from error
+    key = f"rate:collect:{user_id}:{int(utcnow().timestamp()) // 60}"
+    count = increment_rate_limit(request, key, 61)
     if count > 20:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
