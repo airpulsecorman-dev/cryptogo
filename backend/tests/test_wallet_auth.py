@@ -29,7 +29,7 @@ def test_evm_wallet_sign_in_creates_and_reuses_a_separate_persistent_account(cli
     assert "Chain ID: 1" in challenge["message"]
     assert "will not trigger a blockchain transaction" in challenge["message"]
 
-    signature = Account.sign_message(
+    signature = "0x" + Account.sign_message(
         encode_defunct(text=challenge["message"]), wallet.key
     ).signature.hex()
     payload = {
@@ -99,7 +99,7 @@ def test_evm_wallet_rejects_bad_signatures_and_origins(client):
 def test_evm_wallet_challenge_is_bound_to_chain_and_wallet(client):
     wallet = Account.create()
     challenge = create_evm_challenge(client, wallet).json()
-    signature = Account.sign_message(
+    signature = "0x" + Account.sign_message(
         encode_defunct(text=challenge["message"]), wallet.key
     ).signature.hex()
     response = client.post(
@@ -153,7 +153,7 @@ def test_wallet_challenge_expires_and_cannot_be_replayed(client):
         record = db.get(AuthChallenge, challenge["nonce"])
         record.expires_at = utcnow() - timedelta(seconds=1)
         db.commit()
-    signature = Account.sign_message(
+    signature = "0x" + Account.sign_message(
         encode_defunct(text=challenge["message"]), wallet.key
     ).signature.hex()
     response = client.post(

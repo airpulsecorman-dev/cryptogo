@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 import httpx
 from eth_account import Account
 from eth_account.messages import encode_defunct
+from eth_keys.exceptions import BadSignature
 from eth_utils import is_address, to_checksum_address
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
@@ -32,7 +33,12 @@ def canonical_evm_address(address: str) -> str:
 
 
 def recover_evm_signer(message: str, signature: str) -> str:
-    return Account.recover_message(encode_defunct(text=message), signature=signature)
+    try:
+        return Account.recover_message(
+            encode_defunct(text=message), signature=signature
+        )
+    except (BadSignature, ValueError, TypeError) as error:
+        raise ValueError("La firma EVM no es válida.") from error
 
 
 def canonical_ton_address(address: str) -> Address:

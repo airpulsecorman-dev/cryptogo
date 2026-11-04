@@ -67,10 +67,12 @@ Los objetos pueden representar BTC, ETH, BNB, SOL y otros activos
 conocidos. Encontrarlos permite ganar puntos, experiencia (XP),
 completar misiones, desbloquear insignias y subir de nivel.
 
-La primera versión no utilizará blockchain, billeteras, depósitos,
-retiros ni criptomonedas reales como recompensa. Los puntos serán
-unidades internas de juego, no transferibles, sin valor monetario y no
-canjeables por dinero.
+La primera versión no utilizará blockchain para recompensas, custodia,
+depósitos, retiros ni transacciones. El inicio de sesión puede hacerse
+mediante Telegram o con una firma de billetera EVM/Telegram Wallet; esa
+firma solo verifica la identidad y no envía transacciones ni requiere gas.
+Los puntos serán unidades internas de juego, no transferibles, sin valor
+monetario y no canjeables por dinero.
 
 El lanzamiento se realizará mediante una **beta privada en Ecuador**. La
 aplicación tendrá capacidad técnica para cubrir el país, pero
@@ -113,7 +115,7 @@ sean los objetos coleccionables.
 
 ## 2.2 Objetivos del MVP
 
-1. Permitir que un usuario se autentique mediante Telegram.
+1. Permitir que un usuario se autentique mediante Telegram o una billetera.
 2. Mostrar un mapa centrado en su ubicación cuando conceda permiso.
 3. Mostrar monedas virtuales disponibles dentro de zonas habilitadas.
 4. Permitir recoger una moneda al encontrarse dentro del radio
@@ -133,7 +135,7 @@ No se desarrollará en el MVP:
 - Token propio ni criptomoneda negociable.
 - Integración con exchanges.
 - Depósitos, retiros o transferencias de fondos.
-- Billeteras blockchain.
+- Custodia, depósitos, retiros o transacciones con billeteras blockchain.
 - NFT comercializables.
 - Premios en dinero o activos financieros.
 - Compras dentro de la aplicación.
@@ -809,6 +811,10 @@ La API utilizará el prefijo `/api/v1`.
   Método   Ruta               Descripción
   -------- ------------------ ------------------------------
   POST     `/auth/telegram`   Autenticar mediante initData
+  POST     `/auth/evm/challenge` Crear reto de firma EVM
+  POST     `/auth/evm/verify` Verificar firma e iniciar sesión EVM
+  POST     `/auth/ton/challenge` Crear reto TON Connect
+  POST     `/auth/ton/verify` Verificar ton_proof e iniciar sesión
   POST     `/auth/refresh`    Renovar sesión, si aplica
   POST     `/auth/logout`     Cerrar sesión
   GET      `/players/me`      Perfil actual
@@ -969,7 +975,29 @@ La app actual permite la autenticación local `/api/v1/auth/dev` solo cuando
 entornos, incluida producción; la configuración de producción también rechaza
 que ese interruptor esté habilitado.
 
-## 13.3 Sesiones
+## 13.3 Inicio de sesión con billeteras
+
+El juego puede abrirse en un navegador normal y permite iniciar sesión sin
+Telegram. Las opciones disponibles son:
+
+- **EVM:** una billetera de navegador compatible con EIP-1193; el cliente
+  solicita un reto al servidor y lo firma con `personal_sign`.
+- **TON:** Telegram Wallet mediante TON Connect y `ton_proof`. El backend
+  valida el reto, dominio, dirección, StateInit, firma y estado de la billetera
+  usando TON Center. Solo se admiten billeteras Telegram Wallet verificables.
+
+Ambos métodos crean o recuperan una cuenta independiente. No vinculan una
+identidad de billetera con una cuenta de Telegram ni ejecutan transacciones.
+Tras una autenticación exitosa se usa la misma sesión de aplicación mediante
+cookie HttpOnly.
+
+Configura `public/tonconnect-manifest.json` con la URL HTTPS pública del
+frontend antes del despliegue. El backend usa TON Center para validar TON;
+`TONCENTER_API_URL`, `TONCENTER_TESTNET_API_URL` y `TONCENTER_API_KEY` permiten
+configurar los proveedores para cada red. La verificación TON requiere acceso
+al proveedor configurado; no se puede completar si está indisponible.
+
+## 13.4 Sesiones
 
 La implementación podrá usar cookies seguras o tokens de sesión. Si
 utiliza cookies:
@@ -983,7 +1011,7 @@ utiliza cookies:
 La configuración final debe probarse en los clientes oficiales de
 Telegram y en los navegadores compatibles.
 
-## 13.4 Ubicación en Telegram
+## 13.5 Ubicación en Telegram
 
 Se utilizará Telegram Web Apps SDK y su `LocationManager` cuando esté
 disponible. Se podrá implementar una alternativa mediante la Geolocation

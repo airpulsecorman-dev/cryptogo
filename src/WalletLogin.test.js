@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import WalletLogin from "./WalletLogin";
 import { api } from "./api";
 
@@ -31,6 +31,11 @@ jest.mock("./api", () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockStatusChangeHandler = null;
+  mockTonConnectUI.onStatusChange.mockImplementation((handler) => {
+    mockStatusChangeHandler = handler;
+    return jest.fn();
+  });
+  mockTonConnectUI.onModalStateChange.mockImplementation(() => jest.fn());
   mockTonConnectUI.connected = false;
   api.createEvmChallenge.mockResolvedValue({
     nonce: "f".repeat(64),
@@ -113,7 +118,7 @@ test("requests a TON proof challenge before opening the wallet picker", async ()
       },
     },
   };
-  await mockStatusChangeHandler(wallet);
+  await act(async () => mockStatusChangeHandler(wallet));
 
   await waitFor(() =>
     expect(api.authenticateTon).toHaveBeenCalledWith(
