@@ -32,7 +32,8 @@
   <meta property="og:locale" content="es_ES" />
   <!-- Reemplazar con el dominio definitivo -->
   <meta property="og:url" content="https://TU-DOMINIO.com/" />
-  <meta property="og:image" content="https://raw.githubusercontent.com/airpulsecorman-dev/cryptogo/refs/heads/gh-pages/logo512.png" />
+  <meta property="og:image"
+    content="https://raw.githubusercontent.com/airpulsecorman-dev/cryptogo/refs/heads/gh-pages/logo512.png" />
   <meta property="og:image:alt" content="Crypto Go: explora y colecciona criptomonedas" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -42,7 +43,8 @@
   <meta name="twitter:title" content="Crypto Go | Explora, encuentra y colecciona" />
   <meta name="twitter:description"
     content="Descubre coleccionables cripto, explora el mapa y completa desafíos en Crypto Go." />
-  <meta name="twitter:image" content="https://raw.githubusercontent.com/airpulsecorman-dev/cryptogo/refs/heads/gh-pages/logo512.png" />
+  <meta name="twitter:image"
+    content="https://raw.githubusercontent.com/airpulsecorman-dev/cryptogo/refs/heads/gh-pages/logo512.png" />
 
   <!-- Canonical: configurar con el dominio definitivo -->
   <link rel="canonical" href="https://TU-DOMINIO.com/" />
@@ -64,16 +66,187 @@
         "description": "Juego de exploración y colección de objetos virtuales inspirados en criptomonedas.",
         "inLanguage": "es"
       }
-    </script>
+  </script>
+  <style>
+    /* Splash Screen */
+    #crypto-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 999999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      background: #f4f4f4;
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.6s ease, visibility 0.6s ease;
+    }
+
+    #crypto-splash.hide {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .splash-content {
+      display: flex;
+      align-items: center;
+      flex-direction: column;
+      animation: splash-entry 1s ease both;
+    }
+
+    .splash-logo {
+      width: 150px;
+      height: 150px;
+      object-fit: contain;
+      animation: logo-float 2.5s ease-in-out infinite;
+    }
+
+    .splash-title {
+      margin-top: 22px;
+      font-family: Arial, sans-serif;
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: 5px;
+      color: #0b0f17;
+    }
+
+    .splash-subtitle {
+      margin-top: 10px;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      color: #777777;
+    }
+
+    .splash-loader {
+      width: 38px;
+      height: 38px;
+      margin-top: 45px;
+      border: 3px solid #eeeeee;
+      border-top: 3px solid #0b0f17;
+      border-radius: 50%;
+      animation: splash-spin 0.8s linear infinite;
+    }
+
+    .splash-loading {
+      margin-top: 15px;
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      letter-spacing: 2px;
+      color: #999999;
+    }
+
+    @keyframes splash-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes logo-float {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-9px);
+      }
+    }
+
+    @keyframes splash-entry {
+      from {
+        opacity: 0;
+        transform: scale(0.92);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .splash-logo {
+        width: 125px;
+        height: 125px;
+      }
+
+      .splash-title {
+        font-size: 27px;
+      }
+    }
+  </style>
 </head>
 
 <body>
+
+  <!-- CRYPTO GO SPLASH SCREEN -->
+  <div id="crypto-splash">
+
+    <div class="splash-content">
+
+      <img class="splash-logo"
+        src="https://raw.githubusercontent.com/airpulsecorman-dev/cryptogo/refs/heads/gh-pages/logo512.png"
+        alt="Crypto Go Logo" />
+
+      <div class="splash-title">
+        CRYPTO GO
+      </div>
+
+      <div class="splash-subtitle">
+        EXPLORA · ENCUENTRA · COLECCIONA
+      </div>
+
+      <div class="splash-loader"></div>
+
+      <div class="splash-loading">
+        PREPARANDO TU AVENTURA...
+      </div>
+
+    </div>
+
+  </div>
+
   <noscript>
-    Para disfrutar de Crypto Go, necesitas activar JavaScript
-    en tu navegador.
+    Para disfrutar de Crypto Go, necesitas activar JavaScript.
   </noscript>
 
   <div id="root"></div>
+
+  <script>
+    // Ocultar el Splash Screen cuando termine de cargar la página
+    window.addEventListener("load", function () {
+      setTimeout(function () {
+        const splash = document.getElementById("crypto-splash");
+
+        if (splash) {
+          splash.classList.add("hide");
+
+          setTimeout(function () {
+            splash.remove();
+          }, 650);
+        }
+      }, 500);
+    });
+
+    // Protección ante cargas demasiado lentas
+    setTimeout(function () {
+      const splash = document.getElementById("crypto-splash");
+
+      if (splash) {
+        splash.classList.add("hide");
+
+        setTimeout(function () {
+          splash.remove();
+        }, 650);
+      }
+    }, 10000);
+  </script>
+
 </body>
 
 </html>
