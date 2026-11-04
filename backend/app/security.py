@@ -14,25 +14,38 @@ from .database import get_db
 from .models import AuthSession, PlayerProfile, User
 
 
-def validate_telegram_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> dict:
-    fields = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=True))
+def validate_telegram_init_data(
+    init_data: str, bot_token: str, max_age_seconds: int
+) -> dict:
+    pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+    if len({key for key, _value in pairs}) != len(pairs):
+        raise ValueError("Los datos de inicio de Telegram contienen campos duplicados.")
+    fields = dict(pairs)
     supplied_hash = fields.pop("hash", None)
     if not supplied_hash or "auth_date" not in fields or "user" not in fields:
         raise ValueError("Los datos de inicio de Telegram están incompletos.")
 
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    expected_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+    expected_hash = hmac.new(
+        secret_key, check_string.encode(), hashlib.sha256
+    ).hexdigest()
     if not hmac.compare_digest(expected_hash, supplied_hash):
         raise ValueError("La firma de los datos de inicio de Telegram no es válida.")
 
     try:
         auth_timestamp = int(fields["auth_date"])
         telegram_user = json.loads(fields["user"])
-        telegram_id = int(telegram_user["id"])
+        telegram_id = telegram_user["id"]
     except (ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
         raise ValueError("Los datos de usuario de Telegram no son válidos.") from error
 
+    if (
+        not isinstance(telegram_user, dict)
+        or isinstance(telegram_id, bool)
+        or not isinstance(telegram_id, int)
+    ):
+        raise ValueError("Los datos de usuario de Telegram no son válidos.")
     age = datetime.now(timezone.utc).timestamp() - auth_timestamp
     if age < -30 or age > max_age_seconds:
         raise ValueError("Los datos de inicio de Telegram expiraron.")
@@ -84,5 +97,7 @@ def get_current_player(
     user = db.get(User, auth_session.user_id)
     profile = db.get(PlayerProfile, auth_session.user_id)
     if user is None or profile is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "El perfil no está disponible.")
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "El perfil no está disponible."
+        )
     return user, profile

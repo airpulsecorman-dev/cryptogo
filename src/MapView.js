@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Map as MapLibre, Marker } from "maplibre-gl";
+import { Map as MapLibre, Marker, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+setWorkerUrl(
+  new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url).toString(),
+);
 
 const MAP_STYLE =
   process.env.REACT_APP_MAP_STYLE_URL ||

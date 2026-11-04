@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -7,7 +8,9 @@ from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_env: Literal["development", "test", "production"] = "development"
     database_url: str = "postgresql+psycopg://localhost:5432/cryptogo"
@@ -29,18 +32,40 @@ class Settings(BaseSettings):
     def production_requires_secure_configuration(self):
         if self.app_env == "production":
             if self.dev_auth_enabled:
-                raise ValueError("Development authentication must be disabled in production")
+                raise ValueError(
+                    "Development authentication must be disabled in production"
+                )
             if not self.session_cookie_secure:
                 raise ValueError("Production session cookies must use Secure")
-            if self.session_cookie_samesite == "none" and not self.session_cookie_secure:
+            if (
+                self.session_cookie_samesite == "none"
+                and not self.session_cookie_secure
+            ):
                 raise ValueError("SameSite=None requires Secure cookies")
             if not self.telegram_bot_token:
                 raise ValueError("TELEGRAM_BOT_TOKEN is required in production")
+            origins = self.allowed_origins
+            parsed_origins = [urlsplit(origin) for origin in origins]
+            if not parsed_origins or any(
+                origin.scheme != "https"
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+                or origin.path not in {"", "/"}
+                or origin.query
+                or origin.fragment
+                for origin in parsed_origins
+            ):
+                raise ValueError(
+                    "Production CORS origins must be explicit HTTPS origins."
+                )
         return self
 
     @property
     def allowed_origins(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return [
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
+        ]
 
     @property
     def connection_url(self) -> str:

@@ -1,12 +1,14 @@
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
 from app.models import (
     AntiCheatEvent,
+    AuthSession,
     Base,
     Collection,
     Collectible,
@@ -19,6 +21,7 @@ from app.models import (
     utcnow,
 )
 from app.spawn_worker import generate_dynamic_spawns
+from app.security import token_digest
 from .conftest import collect_request, create_player, create_spawn, telegram_init_data
 
 
@@ -162,7 +165,9 @@ def test_stale_and_imprecise_locations_are_rejected_and_logged(client):
         assert reasons == {"stale_or_future_location", "low_location_accuracy"}
 
 
-def test_collection_is_idempotent_and_different_request_is_rejected(client, monkeypatch):
+def test_collection_is_idempotent_and_different_request_is_rejected(
+    client, monkeypatch
+):
     create_player(client)
     spawn_id = create_spawn(client)
     key = str(uuid4())
@@ -229,6 +234,107 @@ def test_invalid_or_expired_telegram_initdata_is_rejected(client):
     assert tampered.status_code == 401
 
 
+def test_telegram_initdata_rejects_duplicate_fields(client):
+    init_data = telegram_init_data()
+    duplicate_auth_date = f"{init_data}&auth_date=1"
+    response = client.post(
+        "/api/v1/auth/telegram",
+        json={"init_data": duplicate_auth_date},
+    )
+    assert response.status_code == 401
+    assert "duplicados" in response.json()["detail"]
+
+
+def test_telegram_session_cookie_is_secure_and_only_its_digest_is_stored(client):
+    client.app.state.settings.session_cookie_secure = True
+    response = client.post(
+        "/api/v1/auth/telegram",
+        json={"init_data": telegram_init_data()},
+    )
+    assert response.status_code == 200
+
+    cookie_header = response.headers["set-cookie"].lower()
+    assert "httponly" in cookie_header
+    assert "secure" in cookie_header
+    assert "samesite=lax" in cookie_header
+
+    session_token = response.cookies.get(client.app.state.settings.session_cookie_name)
+    assert session_token
+    factory = client.app.state.session_factory
+    with factory() as db:
+        assert db.get(AuthSession, token_digest(session_token)) is not None
+        assert db.get(AuthSession, session_token) is None
+
+
+def test_expired_telegram_session_is_rejected_and_removed(client):
+    create_player(client)
+    session_token = client.cookies.get(client.app.state.settings.session_cookie_name)
+    assert session_token
+
+    factory = client.app.state.session_factory
+    with factory() as db:
+        auth_session = db.get(AuthSession, token_digest(session_token))
+        assert auth_session is not None
+        auth_session.expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    response = client.get("/api/v1/players/me")
+    assert response.status_code == 401
+    with factory() as db:
+        assert db.get(AuthSession, token_digest(session_token)) is None
+
+
+def test_production_requires_https_cors_and_disables_development_auth(
+    client, monkeypatch
+):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token-from-environment")
+    assert (
+        Settings(_env_file=None, app_env="test").telegram_bot_token
+        == "test-token-from-environment"
+    )
+
+    with pytest.raises(ValidationError, match="Development authentication"):
+        Settings(
+            app_env="production",
+            telegram_bot_token="test-bot-token",
+            session_cookie_secure=True,
+            dev_auth_enabled=True,
+            cors_origins="https://app.example.test",
+        )
+
+    with pytest.raises(ValidationError, match="HTTPS origins"):
+        Settings(
+            app_env="production",
+            telegram_bot_token="test-bot-token",
+            session_cookie_secure=True,
+            cors_origins="http://app.example.test",
+        )
+
+
+def test_production_auth_endpoint_rejects_development_login():
+    settings = Settings(
+        app_env="production",
+        database_url="sqlite://",
+        telegram_bot_token="test-bot-token",
+        session_cookie_secure=True,
+        cors_origins="https://app.example.test",
+    )
+    app = create_app(settings)
+    Base.metadata.create_all(app.state.engine)
+    with TestClient(app) as production_client:
+        response = production_client.post(
+            "/api/v1/auth/dev",
+            json={"telegram_id": 88, "first_name": "Local"},
+            headers={"Origin": "https://app.example.test"},
+        )
+    assert response.status_code == 404
+    assert response.headers["access-control-allow-origin"] == "https://app.example.test"
+    assert response.headers["access-control-allow-credentials"] == "true"
+    app.state.engine.dispose()
+
+
 def test_second_player_cannot_collect_an_already_claimed_spawn(client):
     create_player(client, 123456, "First Player")
     spawn_id = create_spawn(client)
@@ -292,10 +398,24 @@ def test_dynamic_spawns_are_generated_at_configured_points_and_expire(client):
     assert generate_dynamic_spawns(factory) == 1
     assert generate_dynamic_spawns(factory) == 0
     with factory() as db:
-        active = db.query(SpawnInstance).filter_by(spawn_point_id=point_id, state="available").one()
+        active = (
+            db.query(SpawnInstance)
+            .filter_by(spawn_point_id=point_id, state="available")
+            .one()
+        )
         active.expires_at = utcnow() - timedelta(seconds=1)
         db.commit()
     assert generate_dynamic_spawns(factory) == 1
     with factory() as db:
-        assert db.query(SpawnInstance).filter_by(spawn_point_id=point_id, state="available").count() == 1
-        assert db.query(SpawnInstance).filter_by(spawn_point_id=point_id, state="expired").count() == 1
+        assert (
+            db.query(SpawnInstance)
+            .filter_by(spawn_point_id=point_id, state="available")
+            .count()
+            == 1
+        )
+        assert (
+            db.query(SpawnInstance)
+            .filter_by(spawn_point_id=point_id, state="expired")
+            .count()
+            == 1
+        )

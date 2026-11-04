@@ -86,12 +86,14 @@ Las pruebas del backend usan FastAPI `TestClient` y SQLite real con SQLAlchemy; 
 
 ### Autenticación de Telegram
 
-- **Estado:** Implementado y probado.
-- **Archivos:** `backend/app/security.py`, `backend/app/routers/auth.py`, `backend/app/schemas.py`, `backend/tests/conftest.py`, `backend/tests/test_game.py`.
+- **Estado:** Implementado sin prueba de integración.
+- **Archivos:** `backend/app/security.py`, `backend/app/routers/auth.py`, `backend/app/config.py`, `backend/app/schemas.py`, `backend/tests/conftest.py`, `backend/tests/test_game.py`, `src/App.js`, `src/api.js`.
 - **Endpoints:** `POST /api/v1/auth/telegram`, `POST /api/v1/auth/dev`.
 - **Tablas:** `users`, `player_profiles`, `auth_sessions`.
-- **Prueba ejecutada:** login con `initData` firmado por la clave de prueba; se rechazan firma manipulada, datos incompletos y datos expirados. La prueba de rutas protegidas recibe 401 sin sesión.
-- **Pendiente:** no se probó con Telegram ni con un token real del bot; `TELEGRAM_BOT_TOKEN` está vacío en `.env.example`. `/auth/dev` solo está habilitado con entorno `development` y `DEV_AUTH_ENABLED`; en el cliente también requiere `REACT_APP_ENABLE_DEV_AUTH`.
+- **Verificación del protocolo:** el backend excluye `hash`, ordena los campos firmados y compara HMAC-SHA-256 con `hmac.compare_digest`, siguiendo el procedimiento oficial de Telegram. Valida `auth_date`, firma y un `user.id` entero positivo; rechaza campos duplicados. React envía `Telegram.WebApp.initData`; no autentica con `initDataUnsafe`.
+- **Pruebas locales:** `18 passed, 1 skipped` en backend (`backend/tests/test_concurrency_postgres.py` omitida por falta de PostGIS) y `7 passed` en React. Incluyen initData sintético firmado, firma/usuario alterados, datos incompletos o expirados, campos duplicados, cookie HttpOnly/Secure y hash de sesión almacenado, expiración/revocación de sesión, configuración CORS HTTPS con credenciales y rechazo de `/auth/dev` en producción. Estas pruebas no conectan con Telegram.
+- **Pendiente externo:** `TELEGRAM_BOT_TOKEN` queda vacío en `.env.example`; debe configurarse solo en el entorno secreto del backend. Configurar en BotFather la URL HTTPS publicada del frontend (no la URL del API), `CORS_ORIGINS` con su origen exacto y `REACT_APP_API_BASE_URL` con la URL HTTPS del API. No se validó una firma `initData` auténtica ni se considera conectado el bot.
+- **Desarrollo:** `/auth/dev` requiere simultáneamente `APP_ENV=development` y `DEV_AUTH_ENABLED=true`; la app rechaza ese interruptor en producción y la ruta responde 404 fuera de desarrollo.
 
 ### Sesiones
 
@@ -99,8 +101,8 @@ Las pruebas del backend usan FastAPI `TestClient` y SQLite real con SQLAlchemy; 
 - **Archivos:** `backend/app/security.py`, `backend/app/routers/auth.py`, `backend/app/config.py`, `backend/tests/test_game.py` y `backend/tests/conftest.py`.
 - **Endpoints:** `POST /api/v1/auth/telegram`, `POST /api/v1/auth/logout`; las rutas de juego validan la cookie.
 - **Tablas:** `auth_sessions`, `users`, `player_profiles`.
-- **Prueba ejecutada:** se autentica, se conserva la cookie, se crea una nueva instancia de la API sobre la misma base SQLite y se recupera el mismo perfil; luego logout invalida la sesión. También se comprueba el rechazo sin sesión.
-- **Pendiente:** política de cookies `Secure`, dominio HTTPS y configuración de despliegue no se probaron en producción. La configuración de producción exige cookie segura y token de Telegram.
+- **Prueba ejecutada:** además de persistir al reiniciar la API sobre SQLite y ser revocada por logout, una sesión expirada se rechaza y elimina; el valor aleatorio de la cookie no se guarda en claro en la base. Se comprueban atributos HttpOnly, Secure y SameSite en la respuesta de prueba.
+- **Pendiente:** las cookies, CORS y dominio no se validaron desde Telegram ni en un despliegue HTTPS real. Producción requiere cookie Secure, token de bot y orígenes CORS explícitos HTTPS.
 
 ### Perfil del jugador
 

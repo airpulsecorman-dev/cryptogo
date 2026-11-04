@@ -892,7 +892,42 @@ reales; el cliente nunca puede elegir la recompensa.
 
 ## 13.1 Bot y Mini App
 
-El bot será la puerta de entrada. La Mini App contendrá el juego.
+El bot oficial es `@controller00068856bot`; la Mini App contendrá el juego.
+
+Para habilitarla en BotFather:
+
+1. Publica el frontend con un certificado HTTPS válido.
+2. Abre `@BotFather`, selecciona el bot y configura su **Main Mini App** con
+   la URL pública de la aplicación web, incluyendo su ruta
+   publicada cuando corresponda (por ejemplo, `https://<dominio>/<ruta>/`).
+   No uses aquí la URL del API.
+3. Si se desea un botón permanente en el menú del chat, configura también
+   `/setmenubutton` o **Bot Settings → Menu Button** con la misma URL HTTPS.
+4. Prueba la Mini App desde Telegram. El dominio y la ruta deben corresponder
+   a la publicación disponible.
+
+El `homepage` actual de Create React App apunta a
+`https://airpulsecorman-dev.github.io/cryptogo`. Configura esa URL en BotFather
+solo si ese es el despliegue HTTPS que se usará; si se elige otro hosting o
+dominio, usa la URL pública real de la Mini App.
+
+El backend y el frontend deben usar orígenes HTTPS de producción. Configura
+`CORS_ORIGINS` con el origen exacto del frontend (esquema, host y puerto, sin
+ruta), y `REACT_APP_API_BASE_URL` con la URL HTTPS del API y su prefijo
+`/api/v1`. La petición desde el navegador usa credenciales (`credentials: "include"`), por lo que CORS debe permitir explícitamente ese origen y las
+credenciales; no uses `*`.
+
+Mantén `TELEGRAM_BOT_TOKEN` únicamente en el entorno del backend o en un gestor
+de secretos. No lo pongas en variables `REACT_APP_*`, en el bundle, en el
+repositorio ni en logs. Si un token se comparte accidentalmente, revócalo y
+genera uno nuevo en BotFather antes de continuar.
+
+Para cookies, producción exige `SESSION_COOKIE_SECURE=true`. Usa
+`SESSION_COOKIE_SAMESITE=lax` si el frontend y el API son del mismo sitio
+(incluidos subdominios del mismo dominio registrable); usa `none` solamente si
+son cross-site, siempre con HTTPS. Los navegadores pueden restringir cookies de
+terceros en ese caso; se recomienda publicar frontend y API bajo el mismo
+dominio registrable o servir el API mediante un proxy del mismo origen.
 
 Funciones iniciales del bot:
 
@@ -910,14 +945,29 @@ de Telegram utilizando el procedimiento oficial.
 Reglas:
 
 - Validar la firma en el servidor.
+- Construir `data_check_string` con todos los campos recibidos excepto `hash`,
+  ordenados por clave, y validar el HMAC-SHA-256 según la documentación oficial
+  de [Telegram Mini Apps](https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app).
 - Verificar `auth_date` y rechazar datos antiguos según una ventana de
     validez definida.
 - No utilizar `initDataUnsafe` como prueba de identidad.
 - No confiar en un `telegram_id` enviado de manera independiente por
     el cliente.
+- Rechazar campos repetidos y validar que el usuario firmado tenga un
+  identificador entero positivo.
 - No registrar el token del bot ni datos de autenticación en logs.
-- Establecer una sesión segura de corta duración después de
-    autenticar.
+- Establecer una sesión aleatoria después de autenticar; persistir solo su hash,
+  limitar su vigencia y revocarla al cerrar sesión.
+
+El frontend envía `Telegram.WebApp.initData` a `POST /api/v1/auth/telegram`.
+`initDataUnsafe` puede servir para mostrar información provisional en UI, pero
+nunca para autenticar. Configura el secreto del bot como `TELEGRAM_BOT_TOKEN`
+en el entorno del backend; el código no incluye un token por defecto.
+
+La app actual permite la autenticación local `/api/v1/auth/dev` solo cuando
+`APP_ENV=development` y `DEV_AUTH_ENABLED=true`. La ruta devuelve 404 en otros
+entornos, incluida producción; la configuración de producción también rechaza
+que ese interruptor esté habilitado.
 
 ## 13.3 Sesiones
 
