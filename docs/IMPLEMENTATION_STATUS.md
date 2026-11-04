@@ -8,7 +8,7 @@ backend. `README.md` describe una arquitectura prevista, no una arquitectura
 implementada. Las pruebas existentes verifican el comportamiento de
 demostración y no prueban persistencia ni operaciones de servidor.
 
-## Estado por módulo
+## Estado por módulo en la auditoría inicial
 
 | Módulo | Estado actual | Problemas encontrados | Archivos involucrados | Trabajo necesario | Pruebas requeridas |
 | --- | --- | --- | --- | --- | --- |
@@ -23,6 +23,19 @@ demostración y no prueban persistencia ni operaciones de servidor.
 | Misiones y ranking | No implementado | Misiones y jugadores están hardcodeados en el componente | `src/App.js` | Consultar datos del backend; presentar claramente un estado vacío cuando no existan misiones o jugadores | Respuestas vacías, orden del ranking y datos de jugador |
 | Configuración y despliegue | No implementado | No hay Docker Compose, configuración de entorno ni proceso de despliegue del API | `package.json`, `.gitignore`, `README.md` | Documentar variables sin secretos y añadir servicios reproducibles de API, PostgreSQL/PostGIS y Redis | Arranque local, readiness, migraciones y comprobación de secretos |
 | Pruebas automatizadas | Parcial: 11 pruebas de UI de demostración pasan | No prueban autenticación, APIs, base de datos, mapas reales ni concurrencia | `src/App.test.js`, `src/setupTests.js` | Añadir pruebas de backend y adaptar las de UI al contrato conectado; ejecutar integraciones PostGIS al disponer de PostgreSQL | Pytest, pruebas React y, con el entorno disponible, integración PostgreSQL/PostGIS concurrente |
+
+## Estado después de la primera implementación
+
+| Módulo | Estado | Implementado | Pendiente / validación |
+| --- | --- | --- | --- |
+| Frontend y mapa | Implementado con MapLibre, ubicación bajo demanda y consultas de zonas/apariciones | Inicio de sesión conectado a sesión del backend, actualizaciones al mover el mapa, estados de carga/error/vacío | Probar en Telegram Mini App desplegada con API HTTPS y permisos GPS reales |
+| Autenticación | Implementado | HMAC Telegram `initData`, vencimiento, sesión opaca en cookie HttpOnly; login de desarrollo solo con doble habilitación y entorno de desarrollo | Configurar token real del bot, dominios y política de cookies en despliegue |
+| Perfil, inventario y economía | Implementado | Perfil persistente; historial, libro de puntos/XP, colección e idempotencia transaccional | Probar persistencia en PostgreSQL real |
+| Geografía y apariciones | Implementación disponible | Consultas PostGIS; zonas/puntos provisionados por operador; worker genera apariciones dinámicas en puntos configurados y expira las vencidas | Aprovisionar ubicaciones verificadas; probar con PostGIS real y comprobar criterios de densidad operativa |
+| Recolección | Implementada | Backend valida estado, expiración, geocerca, distancia y señales de precisión/tiempo; bloqueo transaccional y recompensa calculada en servidor | Ejecutar prueba de concurrencia en PostgreSQL; SQLite no prueba el bloqueo de filas |
+| Misiones y ranking | Parcial | Endpoints y pantallas consultan el backend; no inventan datos para misiones vacías | Definir y persistir reglas/progreso de misiones; ranking solo tendrá datos con jugadores reales |
+| Infraestructura | Implementación local disponible | Compose para API, PostgreSQL/PostGIS, Redis y worker; migración Alembic y variables de ejemplo | Docker no está disponible en este entorno; no se ha ejecutado el stack ni la migración en una instancia real |
+| Pruebas | Parcial | Pruebas de API con SQLite y pruebas de UI; prueba concurrente optativa para PostgreSQL | Ejecutar todas tras últimos cambios; correr la prueba PostGIS/concurrencia en entorno Docker o PostgreSQL |
 
 ## Observaciones del entorno
 

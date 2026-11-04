@@ -1,13 +1,14 @@
 import argparse
 import json
-import os
 from datetime import timedelta
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
+from .config import Settings
 from .database import create_session_factory
+from .geo import point_is_in_enabled_zone
 from .models import Collectible, SpawnInstance, SpawnPoint, Zone, utcnow
 
 
@@ -29,7 +30,8 @@ def main():
     create_spawn.add_argument("--expires-after-seconds", default=86400, type=int)
     args = parser.parse_args()
 
-    factory = create_session_factory(os.environ["DATABASE_URL"])
+    settings = Settings(_env_file=Path(__file__).resolve().parents[2] / ".env")
+    factory = create_session_factory(settings.connection_url)
     with factory() as db:
         if args.command == "create-zone":
             boundary = json.loads(args.boundary_file.read_text(encoding="utf-8"))
@@ -37,6 +39,12 @@ def main():
                 parser.error("boundary-file must contain a GeoJSON Polygon.")
             if any(ring[0] != ring[-1] for ring in boundary["coordinates"]):
                 parser.error("Every GeoJSON polygon ring must be closed.")
+            is_valid = db.execute(
+                text("SELECT ST_IsValid(ST_SetSRID(ST_GeomFromGeoJSON(:boundary), 4326))"),
+                {"boundary": json.dumps(boundary)},
+            ).scalar_one()
+            if not is_valid:
+                parser.error("The GeoJSON polygon is invalid according to PostGIS.")
             zone = Zone(name=args.name, boundary_geojson=json.dumps(boundary), enabled=args.enable)
             db.add(zone)
             db.commit()
@@ -49,6 +57,8 @@ def main():
             parser.error("zone-id must identify an enabled, reviewed zone.")
         if collectible is None or not collectible.enabled:
             parser.error("ticker must identify an enabled catalog collectible.")
+        if not point_is_in_enabled_zone(db, args.latitude, args.longitude, zone.id):
+            parser.error("The spawn coordinates must lie inside the enabled zone.")
         point = SpawnPoint(
             zone_id=zone.id,
             collectible_id=collectible.id,

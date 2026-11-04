@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
-import { api } from './api';
+import { api, createIdempotencyKey } from './api';
 
 jest.mock('./MapView', () => function TestMapView({ discoveries, onSelect }) {
   return (
@@ -26,6 +26,7 @@ jest.mock('./api', () => ({
     missions: jest.fn(),
     leaderboard: jest.fn(),
   },
+  createIdempotencyKey: jest.fn(() => 'test-idempotency-key'),
   developmentAuthEnabled: false,
 }));
 
@@ -62,6 +63,7 @@ function openSection(label) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  createIdempotencyKey.mockReturnValue('test-idempotency-key');
   api.profile.mockResolvedValue(player);
   api.nearby.mockResolvedValue({ items: [], message: null });
   api.zones.mockResolvedValue({ items: [] });
@@ -125,9 +127,10 @@ test('GPS lookup loads actual nearby items and collecting uses the server reward
 
   await waitFor(() => expect(api.collect).toHaveBeenCalledWith(
     expect.objectContaining({ latitude: 0, longitude: 0, accuracy: 5 }),
-    'spawn-1'
+    'spawn-1',
+    expect.any(String)
   ));
-  expect(await screen.findByRole('status')).toHaveTextContent(/\+10 puntos · \+10 xp/i);
+  expect(await screen.findByText(/\+10 puntos · \+10 xp/i)).toBeInTheDocument();
   expect(screen.getByLabelText(/10 puntos/i)).toBeInTheDocument();
 });
 
@@ -150,7 +153,7 @@ test('the profile reads persisted player values from the API', async () => {
   openSection('Perfil');
 
   expect(await screen.findByRole('heading', { name: /ada lovelace/i })).toBeInTheDocument();
-  expect(screen.getByText('500 / 500 XP')).toBeInTheDocument();
+  expect(screen.getAllByText('0 / 500 XP')).toHaveLength(2);
   expect(api.profile).toHaveBeenCalledTimes(2);
 });
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import { Map as MapLibre, Marker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const MAP_STYLE =
@@ -12,6 +12,7 @@ function MapView({
   zones,
   selectedId,
   onSelect,
+  onMapMove,
   zoom,
   onZoomChange,
 }) {
@@ -19,10 +20,12 @@ function MapView({
   const mapRef = useRef(null);
   const markersRef = useRef([]);
   const playerMarkerRef = useRef(null);
+  const mapMoveHandlerRef = useRef(onMapMove);
   const [loaded, setLoaded] = useState(false);
+  mapMoveHandlerRef.current = onMapMove;
 
   useEffect(() => {
-    const map = new maplibregl.Map({
+    const map = new MapLibre({
       container: containerRef.current,
       style: MAP_STYLE,
       center: [-78.1834, -1.8312],
@@ -32,6 +35,13 @@ function MapView({
     mapRef.current = map;
     map.on("load", () => setLoaded(true));
     map.on("zoomend", () => onZoomChange(map.getZoom()));
+    map.on("moveend", () => {
+      const center = map.getCenter();
+      mapMoveHandlerRef.current?.({
+        latitude: center.lat,
+        longitude: center.lng,
+      });
+    });
 
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
@@ -64,8 +74,8 @@ function MapView({
       element.className = 'player-marker map-player-marker';
       element.setAttribute('role', 'img');
       element.setAttribute('aria-label', 'Tu ubicación GPS');
-      element.innerHTML = '<span></span>';
-      playerMarkerRef.current = new maplibregl.Marker({ element, anchor: 'center' })
+      element.append(document.createElement('span'));
+      playerMarkerRef.current = new Marker({ element, anchor: 'center' })
         .setLngLat([position.longitude, position.latitude])
         .addTo(mapRef.current);
       return;
@@ -119,7 +129,7 @@ function MapView({
         `Seleccionar ${discovery.name}, a ${Math.round(discovery.distance_meters)} metros`,
       );
       element.addEventListener("click", () => onSelect(discovery.id));
-      return new maplibregl.Marker({ element, anchor: "center" })
+      return new Marker({ element, anchor: "center" })
         .setLngLat([discovery.longitude, discovery.latitude])
         .addTo(mapRef.current);
     });

@@ -22,9 +22,14 @@ def _rate_limit(request: Request, key: str, limit: int, window_seconds: int) -> 
     bucket = int(time.time()) // window_seconds
     redis_key = f"rate:{key}:{bucket}"
     try:
-        count = client.incr(redis_key)
-        if count == 1:
-            client.expire(redis_key, window_seconds + 1)
+        count = client.eval(
+            "local count = redis.call('INCR', KEYS[1]); "
+            "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; "
+            "return count",
+            1,
+            redis_key,
+            window_seconds + 1,
+        )
     except redis.RedisError as error:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "El control de solicitudes no está disponible.") from error
     if count > limit:

@@ -18,26 +18,26 @@ def validate_telegram_init_data(init_data: str, bot_token: str, max_age_seconds:
     fields = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=True))
     supplied_hash = fields.pop("hash", None)
     if not supplied_hash or "auth_date" not in fields or "user" not in fields:
-        raise ValueError("Telegram initData is incomplete")
+        raise ValueError("Los datos de inicio de Telegram están incompletos.")
 
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected_hash, supplied_hash):
-        raise ValueError("Telegram initData signature is invalid")
+        raise ValueError("La firma de los datos de inicio de Telegram no es válida.")
 
     try:
         auth_timestamp = int(fields["auth_date"])
         telegram_user = json.loads(fields["user"])
         telegram_id = int(telegram_user["id"])
     except (ValueError, TypeError, KeyError, json.JSONDecodeError) as error:
-        raise ValueError("Telegram initData contains invalid user data") from error
+        raise ValueError("Los datos de usuario de Telegram no son válidos.") from error
 
     age = datetime.now(timezone.utc).timestamp() - auth_timestamp
     if age < -30 or age > max_age_seconds:
-        raise ValueError("Telegram initData has expired")
+        raise ValueError("Los datos de inicio de Telegram expiraron.")
     if telegram_id <= 0:
-        raise ValueError("Telegram user id is invalid")
+        raise ValueError("El identificador de usuario de Telegram no es válido.")
     return telegram_user
 
 

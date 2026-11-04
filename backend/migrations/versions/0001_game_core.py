@@ -85,6 +85,9 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_spawn_point_latitude"),
         sa.CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_spawn_point_longitude"),
+        sa.CheckConstraint("visibility_radius_meters BETWEEN 1 AND 5000", name="ck_spawn_point_visibility_radius"),
+        sa.CheckConstraint("collection_radius_meters BETWEEN 1 AND 35", name="ck_spawn_point_collection_radius"),
+        sa.CheckConstraint("expires_after_seconds BETWEEN 60 AND 604800", name="ck_spawn_point_expiration"),
         sa.ForeignKeyConstraint(["zone_id"], ["zones.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["collectible_id"], ["collectibles.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -105,6 +108,8 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_spawn_latitude"),
         sa.CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_spawn_longitude"),
+        sa.CheckConstraint("visibility_radius_meters BETWEEN 1 AND 5000", name="ck_spawn_visibility_radius"),
+        sa.CheckConstraint("collection_radius_meters BETWEEN 1 AND 35", name="ck_spawn_collection_radius"),
         sa.CheckConstraint("state IN ('available', 'collected', 'expired')", name="ck_spawn_state"),
         sa.ForeignKeyConstraint(["spawn_point_id"], ["spawn_points.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["zone_id"], ["zones.id"], ondelete="CASCADE"),
@@ -129,7 +134,6 @@ def upgrade():
         sa.ForeignKeyConstraint(["collectible_id"], ["collectibles.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("spawn_instance_id", name="uq_collection_spawn"),
-        sa.UniqueConstraint("spawn_instance_id"),
     )
     op.create_index("ix_collections_user_id", "collections", ["user_id"])
     op.create_index("ix_collections_collected_at", "collections", ["collected_at"])

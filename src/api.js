@@ -19,14 +19,24 @@ async function request(path, options = {}) {
       credentials: "include",
       headers: { "Content-Type": "application/json", ...options.headers },
     });
-  } catch (error) {
+  } catch {
     throw new Error(
       "No se pudo conectar con el servidor. Comprueba tu conexión e inténtalo de nuevo.",
     );
   }
 
   if (response.status === 204) return null;
-  const result = await response.json().catch(() => ({}));
+  const responseBody = await response.text();
+  let result = {};
+  if (responseBody) {
+    try {
+      result = JSON.parse(responseBody);
+    } catch {
+      throw new Error("El servidor devolvió una respuesta no válida.");
+    }
+  } else if (response.ok) {
+    throw new Error("El servidor devolvió una respuesta vacía.");
+  }
   if (!response.ok) {
     const error = new Error(
       result.detail || "La solicitud no pudo completarse.",
@@ -37,7 +47,7 @@ async function request(path, options = {}) {
   return result;
 }
 
-function idempotencyKey() {
+export function createIdempotencyKey() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
   const bytes = new Uint8Array(16);
   window.crypto.getRandomValues(bytes);
@@ -64,16 +74,16 @@ export const api = {
     }),
   nearby: (position) =>
     request(
-      `/collectibles/nearby?latitude=${encodeURIComponent(position.latitude)}&longitude=${encodeURIComponent(position.longitude)}`,
+      `/collectibles/nearby?latitude=${encodeURIComponent(position.latitude)}&longitude=${encodeURIComponent(position.longitude)}&radius_meters=5000`,
     ),
   zones: (position) =>
     request(
       `/zones/nearby?latitude=${encodeURIComponent(position.latitude)}&longitude=${encodeURIComponent(position.longitude)}`,
     ),
-  collect: (position, spawnInstanceId) =>
+  collect: (position, spawnInstanceId, key = createIdempotencyKey()) =>
     request("/collectibles/collect", {
       method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey() },
+      headers: { "Idempotency-Key": key },
       body: JSON.stringify({
         spawn_instance_id: spawnInstanceId,
         latitude: position.latitude,

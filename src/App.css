@@ -409,146 +409,6 @@ p {
   overflow: hidden;
   position: relative;
 }
-.map-scene {
-  height: 100%;
-  inset: 0;
-  position: absolute;
-  transform-origin: center;
-  transition: transform .18s ease;
-  width: 100%;
-  z-index: 1;
-}
-
-.map-canvas::before {
-  background-image: linear-gradient(26deg, transparent 48.8%, #a9bac00a 49%, #a9bac00a 50.2%, transparent 50.4%), linear-gradient(116deg, transparent 47.8%, #a9bac009 48%, #a9bac009 49%, transparent 49.2%), linear-gradient(0deg, transparent 49.5%, #a9bac008 49.7%, #a9bac008 50%, transparent 50.2%);
-  background-size: 145px 122px, 180px 150px, 96px 81px;
-  content: '';
-  inset: 0;
-  position: absolute;
-}
-
-.map-canvas::after {
-  background: radial-gradient(ellipse at 54% 46%, transparent 10%, #09121b24 78%, #09121b65 100%);
-  content: '';
-  inset: 0;
-  pointer-events: none;
-  position: absolute;
-}
-
-.map-water {
-  background: #192c39;
-  border-radius: 47% 53% 0 0;
-  height: 125px;
-  left: 67%;
-  opacity: .43;
-  position: absolute;
-  top: -75px;
-  transform: rotate(22deg);
-  width: 390px;
-}
-
-.map-park {
-  align-items: center;
-  background: #24352e;
-  border: 1px solid #334639;
-  border-radius: 7px;
-  color: #728b6e;
-  display: flex;
-  flex-direction: column;
-  font-size: 8px;
-  gap: 9px;
-  justify-content: center;
-  letter-spacing: 1px;
-  position: absolute;
-}
-
-.map-park i {
-  color: #75936e;
-  font-size: 20px;
-  font-style: normal;
-  opacity: .85;
-}
-
-.park-one {
-  height: 132px;
-  left: 8%;
-  top: 13%;
-  transform: rotate(-10deg);
-  width: 175px;
-}
-
-.park-two {
-  height: 92px;
-  left: 62%;
-  top: 62%;
-  transform: rotate(13deg);
-  width: 123px;
-}
-
-.map-road {
-  background: #29333d;
-  box-shadow: 0 0 0 2px #151e28;
-  height: 12px;
-  position: absolute;
-}
-
-.road-one {
-  left: -5%;
-  top: 35%;
-  transform: rotate(-17deg);
-  width: 112%;
-}
-
-.road-two {
-  left: 8%;
-  top: 67%;
-  transform: rotate(8deg);
-  width: 104%;
-}
-
-.road-three {
-  height: 110%;
-  left: 41%;
-  top: -5%;
-  transform: rotate(17deg);
-  width: 10px;
-}
-
-.road-four {
-  height: 109%;
-  left: 76%;
-  top: -5%;
-  transform: rotate(-13deg);
-  width: 9px;
-}
-
-.road-five {
-  left: 22%;
-  top: 51%;
-  transform: rotate(83deg);
-  width: 95%;
-}
-
-.street-label {
-  color: #7d8a97;
-  font-size: 8px;
-  letter-spacing: .6px;
-  position: absolute;
-  text-shadow: 0 1px 3px #0b0f17;
-}
-
-.street-one {
-  left: 19%;
-  top: 31%;
-  transform: rotate(-17deg);
-}
-
-.street-two {
-  left: 67%;
-  top: 44%;
-  transform: rotate(-13deg);
-}
-
 .player-marker {
   align-items: center;
   background: #79a8ff20;
@@ -604,21 +464,6 @@ p {
 .map-coin.selected {
   box-shadow: 0 0 0 5px #ffffff18, 0 7px 20px #0008;
   transform: translateY(-4px) scale(1.08);
-}
-
-.coin-1 {
-  left: 62%;
-  top: 27%;
-}
-
-.coin-2 {
-  left: 25%;
-  top: 69%;
-}
-
-.coin-3 {
-  left: 82%;
-  top: 73%;
 }
 
 .bitcoin {
@@ -686,18 +531,6 @@ p {
   padding: 5px 7px;
   position: absolute;
   top: 14px;
-  z-index: 4;
-}
-
-.map-attribution {
-  background: #0d141dcc;
-  border-radius: 3px;
-  bottom: 8px;
-  color: #8491a0;
-  font-size: 8px;
-  padding: 4px 6px;
-  position: absolute;
-  right: 8px;
   z-index: 4;
 }
 
@@ -1692,23 +1525,6 @@ p {
   .map-canvas {
     height: 48vh;
     min-height: 310px;
-  }
-
-  .park-one {
-    height: 96px;
-    width: 126px;
-  }
-
-  .road-one {
-    top: 34%;
-  }
-
-  .road-two {
-    top: 67%;
-  }
-
-  .street-label {
-    font-size: 7px;
   }
 
   .map-footer {

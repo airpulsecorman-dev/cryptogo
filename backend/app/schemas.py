@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TelegramAuthRequest(BaseModel):
@@ -47,6 +47,13 @@ class CollectRequest(BaseModel):
     longitude: float = Field(ge=-180, le=180)
     accuracy_meters: float = Field(gt=0, le=10_000)
     client_timestamp: datetime
+
+    @field_validator("client_timestamp")
+    @classmethod
+    def timestamp_must_include_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("client_timestamp must include a timezone.")
+        return value
 
 
 class CollectibleResult(BaseModel):

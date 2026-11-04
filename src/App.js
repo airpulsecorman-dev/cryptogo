@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import MapView from "./MapView";
-import { api, developmentAuthEnabled } from "./api";
+import { api, createIdempotencyKey, developmentAuthEnabled } from "./api";
 
 const sections = [
   { id: "map", icon: "⌖", label: "Mapa" },
@@ -17,6 +17,7 @@ function App() {
   const [authenticationError, setAuthenticationError] = useState("");
   const [authenticating, setAuthenticating] = useState(true);
   const [position, setPosition] = useState(null);
+  const [mapQueryPosition, setMapQueryPosition] = useState(null);
   const [locationMessage, setLocationMessage] = useState("");
   const [discoveries, setDiscoveries] = useState([]);
   const [zones, setZones] = useState([]);
@@ -29,6 +30,7 @@ function App() {
   const [pageError, setPageError] = useState("");
   const [collecting, setCollecting] = useState(false);
   const [notice, setNotice] = useState("");
+  const collectionAttempt = useRef(null);
 
   const selectedDiscovery = useMemo(
     () => discoveries.find(({ id }) => id === selectedId),
@@ -74,10 +76,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!player || !position) return undefined;
+    if (!player || !mapQueryPosition) return undefined;
     let active = true;
     setLocationMessage("Buscando objetos y zonas habilitadas…");
-    Promise.all([api.nearby(position), api.zones(position)])
+    Promise.all([api.nearby(mapQueryPosition), api.zones(mapQueryPosition)])
       .then(([nearby, enabledZones]) => {
         if (!active) return;
         setDiscoveries(nearby.items);
@@ -100,10 +102,10 @@ function App() {
     return () => {
       active = false;
     };
-  }, [player, position]);
+  }, [player, mapQueryPosition]);
 
   useEffect(() => {
-    if (!player || activeSection === "map") return undefined;
+    if (activeSection === "map") return undefined;
     let active = true;
     setLoadingSection(true);
     setPageError("");
@@ -130,7 +132,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [activeSection, player]);
+  }, [activeSection]);
 
   function signInAsDeveloper() {
     setAuthenticating(true);
@@ -157,6 +159,10 @@ function App() {
           timestamp: new Date().toISOString(),
         };
         setPosition(nextPosition);
+        setMapQueryPosition({
+          latitude: nextPosition.latitude,
+          longitude: nextPosition.longitude,
+        });
         setLocationMessage("Ubicación GPS detectada. Consultando el mapa…");
       },
       (error) => {
@@ -173,19 +179,45 @@ function App() {
     );
   }
 
+  const handleMapMove = useCallback(
+    (center) => {
+      if (position) setMapQueryPosition(center);
+    },
+    [position],
+  );
+
   async function collectDiscovery() {
     if (!selectedDiscovery || !position || collecting) return;
     setCollecting(true);
     setPageError("");
+    const requestFingerprint = JSON.stringify([
+      selectedDiscovery.id,
+      position.latitude,
+      position.longitude,
+      position.accuracy,
+      position.timestamp,
+    ]);
+    if (collectionAttempt.current?.fingerprint !== requestFingerprint) {
+      collectionAttempt.current = {
+        fingerprint: requestFingerprint,
+        key: createIdempotencyKey(),
+      };
+    }
     try {
-      const result = await api.collect(position, selectedDiscovery.id);
+      const result = await api.collect(
+        position,
+        selectedDiscovery.id,
+        collectionAttempt.current.key,
+      );
+      collectionAttempt.current = null;
       setPlayer(result.player);
       setNotice(
         `${result.message} · +${result.rewards.points} puntos · +${result.rewards.xp} XP`,
       );
+      const queryPosition = mapQueryPosition || position;
       const [nearby, enabledZones] = await Promise.all([
-        api.nearby(position),
-        api.zones(position),
+        api.nearby(queryPosition),
+        api.zones(queryPosition),
       ]);
       setDiscoveries(nearby.items);
       setZones(enabledZones.items);
@@ -311,6 +343,7 @@ function App() {
               pageError={pageError}
               onSelect={setSelectedId}
               onLocate={locatePlayer}
+              onMapMove={handleMapMove}
               onCollect={collectDiscovery}
               onZoomChange={handleZoomChange}
             />
@@ -379,7 +412,7 @@ function AuthenticationScreen({
         </span>
         <p className="eyebrow">GO. COLLECT. LEVEL UP.</p>
         <h1>
-          Crypto<span>Go</span>
+          Crypto <span>Go</span>
         </h1>
         <p className="subheading">
           Inicia sesión con Telegram para continuar tu aventura.
@@ -408,7 +441,12 @@ function LoadingScreen({ message }) {
 }
 
 function LoadedSection({ loading, error, children }) {
-  if (loading) return <LoadingScreen message="Cargando datos del servidor…" />;
+  if (loading)
+    return (
+      <p className="section-loading" role="status">
+        Cargando datos del servidor…
+      </p>
+    );
   if (error)
     return (
       <p className="section-error" role="alert">
@@ -430,14 +468,24 @@ function MapSection({
   pageError,
   onSelect,
   onLocate,
+  onMapMove,
   onCollect,
   onZoomChange,
 }) {
+  const gpsDistance =
+    selectedDiscovery && position
+      ? haversineMeters(
+          position.latitude,
+          position.longitude,
+          selectedDiscovery.latitude,
+          selectedDiscovery.longitude,
+        )
+      : Infinity;
   const canCollect =
     selectedDiscovery &&
     position &&
-    selectedDiscovery.distance_meters <=
-      selectedDiscovery.collection_radius_meters;
+    position.accuracy <= 50 &&
+    gpsDistance <= selectedDiscovery.collection_radius_meters;
   return (
     <>
       <div className="page-heading map-heading">
@@ -477,6 +525,7 @@ function MapSection({
               zones={zones}
               selectedId={selectedId}
               onSelect={onSelect}
+              onMapMove={onMapMove}
               zoom={mapZoom}
               onZoomChange={onZoomChange}
             />
@@ -553,10 +602,7 @@ function MapSection({
                   <i /> {canCollect ? "DENTRO DEL RADIO" : "ACÉRCATE AL OBJETO"}
                 </span>
                 <p>
-                  Distancia GPS:{" "}
-                  <strong>
-                    {formatDistance(selectedDiscovery.distance_meters)}
-                  </strong>
+                  Distancia GPS: <strong>{formatDistance(gpsDistance)}</strong>
                 </p>
               </div>
               <button
@@ -876,6 +922,18 @@ function formatRarity(rarity) {
       legendary: "Legendario",
     }[rarity] || rarity
   );
+}
+
+function haversineMeters(latitudeA, longitudeA, latitudeB, longitudeB) {
+  const radians = (degrees) => (degrees * Math.PI) / 180;
+  const deltaLatitude = radians(latitudeB - latitudeA);
+  const deltaLongitude = radians(longitudeB - longitudeA);
+  const value =
+    Math.sin(deltaLatitude / 2) ** 2 +
+    Math.cos(radians(latitudeA)) *
+      Math.cos(radians(latitudeB)) *
+      Math.sin(deltaLongitude / 2) ** 2;
+  return 6_371_000 * 2 * Math.asin(Math.sqrt(value));
 }
 
 function markerClass(ticker) {

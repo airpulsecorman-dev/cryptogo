@@ -4,10 +4,14 @@ import redis
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 
 from .config import Settings, get_settings
 from .database import create_session_factory
 from .routers import auth, game
+
+logger = logging.getLogger("cryptogo.api")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -17,6 +21,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         yield
         app.state.redis.close()
+        app.state.engine.dispose()
 
     app = FastAPI(
         title="Crypto Go API",
@@ -26,7 +31,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = app_settings
-    app.state.session_factory = create_session_factory(app_settings.database_url)
+    app.state.session_factory = create_session_factory(app_settings.connection_url)
+    app.state.engine = app.state.session_factory.kw["bind"]
     app.state.redis = redis.Redis.from_url(app_settings.redis_url, socket_timeout=2)
     app.add_middleware(
         CORSMiddleware,
@@ -35,6 +41,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", "Idempotency-Key"],
     )
+
+    @app.exception_handler(SQLAlchemyError)
+    async def handle_database_error(_request: Request, error: SQLAlchemyError):
+        logger.error(
+            "Database operation failed",
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "El servicio de datos no está disponible."},
+        )
 
     @app.middleware("http")
     async def validate_mutation_origin(request: Request, call_next):

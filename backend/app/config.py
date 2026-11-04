@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     database_url: str = "postgresql+psycopg://localhost:5432/cryptogo"
+    postgres_password: str | None = None
     redis_url: str = "redis://localhost:6379/0"
     telegram_bot_token: str | None = None
     telegram_auth_max_age_seconds: int = 43_200
@@ -39,6 +41,13 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def connection_url(self) -> str:
+        url = make_url(self.database_url)
+        if url.password is None and self.postgres_password:
+            url = url.set(password=self.postgres_password)
+        return url.render_as_string(hide_password=False)
 
 
 @lru_cache

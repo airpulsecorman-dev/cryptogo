@@ -4,15 +4,15 @@
 > Explora el mundo real, encuentra criptomonedas virtuales y conviértete
 > en leyenda.
 
-**Estado del proyecto:** especificación, planificación y prototipo visual del frontend\
+**Estado del proyecto:** implementación inicial del cliente React y API; pendiente de despliegue integrado\
 **Versión del documento:** 1.0\
 **Plataforma inicial:** Telegram Mini App\
 **Territorio de lanzamiento:** Ecuador\
 **Modalidad de lanzamiento:** beta privada\
 **Modelo de recompensas:** puntos y experiencia virtuales, sin valor
 monetario\
-**Arquitectura:** Next.js + TypeScript, FastAPI, PostgreSQL/PostGIS,
-Redis y workers
+**Arquitectura actual:** Create React App + React/JavaScript, MapLibre GL JS,
+FastAPI, SQLAlchemy/Alembic, PostgreSQL/PostGIS, Redis y worker de apariciones
 
 ------------------------------------------------------------------------
 
@@ -90,12 +90,16 @@ verificadas y aprobadas por el equipo administrador.
 
 ## Estado actual
 
-Este README documenta el producto y la implementación prevista. El
-frontend cuenta con un prototipo visual navegable y un ciclo local de
-recolección de demostración. **La autenticación con Telegram, el mapa
-real, el backend y las demás funcionalidades descritas todavía no están
-implementados.** Los plazos, costos, parámetros de juego y cantidades
-de usuarios son estimaciones o valores iniciales sujetos a pruebas.
+El estado verificado de cada módulo está en
+[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md). La SPA
+conserva su identidad visual y se conecta a una API FastAPI con sesiones
+HttpOnly, perfiles persistentes, mapa MapLibre, consultas PostGIS,
+recolección transaccional e inventario. Los tests locales usan SQLite para
+probar las reglas de aplicación; la integración concurrente/PostGIS requiere
+un servicio PostgreSQL real. El flujo de producción aún necesita credenciales
+de Telegram, URL HTTPS, zonas seguras aprobadas y apariciones provisionadas.
+No se incluyen ubicaciones de juego de demostración en producción. Los plazos,
+costos y parámetros de balance son estimaciones sujetas a pruebas.
 
 ------------------------------------------------------------------------
 
@@ -512,9 +516,9 @@ No se recomienda iniciar con microservicios ni Kubernetes para la beta.
 
   Componente             Tecnología
   ---------------------- --------------------------------
-  Frontend               Next.js + React
-  Lenguaje frontend      TypeScript
-  Estilos                Tailwind CSS
+  Frontend               Create React App + React (existente)
+  Lenguaje frontend      JavaScript (existente)
+  Estilos                CSS (existente)
   Mapas                  MapLibre GL JS
   Backend                Python + FastAPI
   Base de datos          PostgreSQL
@@ -526,11 +530,13 @@ No se recomienda iniciar con microservicios ni Kubernetes para la beta.
   Bot                    Telegram Bot API
   Contenedores           Docker
   Proxy HTTPS            Nginx o equivalente
-  Pruebas frontend       Vitest y Playwright
+  Pruebas frontend       Jest y Testing Library (existentes)
   Pruebas backend        Pytest
 
-Las versiones concretas deberán fijarse en los archivos de dependencias
-y actualizarse de forma controlada.
+El repositorio existente se conserva en Create React App/JavaScript; Next.js y
+TypeScript son una opción de evolución documentada, no requisitos para este
+primer flujo. Las dependencias actuales están declaradas en `package.json` y
+`yarn.lock`; las del API están en `backend/requirements.txt`.
 
 ## 9.3 Diagrama lógico
 
@@ -538,7 +544,7 @@ y actualizarse de forma controlada.
 flowchart TD
     A[Usuario] --> B[Telegram]
     B --> C[Telegram Mini App]
-    C --> D[Next.js / React]
+    C --> D[React / MapLibre]
     D --> E[FastAPI]
     E --> F[Autenticación y reglas del juego]
     F --> G[(PostgreSQL + PostGIS)]
@@ -587,7 +593,23 @@ No decide recompensas ni valida definitivamente las recolecciones.
 
 ## 10. Estructura del repositorio
 
-Se recomienda un monorepo:
+La estructura propuesta a continuación es un diseño objetivo y no refleja el
+árbol real existente. Para esta entrega no se trasladó ni reemplazó el
+frontend Create React App. El código añadido usa `backend/` y mantiene la
+aplicación web en la raíz:
+
+```text
+src/App.js                 # Interfaz conectada a la API
+src/MapView.js             # Mapa MapLibre y capas/markers
+src/api.js                 # Cliente HTTP con cookies de sesión
+backend/app/               # FastAPI, modelos, seguridad, geografía, worker
+backend/migrations/        # Migraciones Alembic
+backend/tests/             # Pruebas API/reglas y concurrencia PostGIS
+docker-compose.yml         # PostgreSQL/PostGIS, Redis, API y worker
+docs/IMPLEMENTATION_STATUS.md
+```
+
+La estructura futura propuesta para una evolución mayor sería:
 
 ``` text
 crypto-Go/
@@ -1187,10 +1209,10 @@ personales innecesarios en logs.
 
 ## 19. Configuración del entorno
 
-El archivo `.env.example` debe documentar todas las variables
-requeridas, sin contener secretos reales.
-
-Ejemplo de referencia:
+El archivo raíz `.env.example` contiene las variables de configuración local
+de esta implementación y no incluye credenciales reales. Para iniciar el
+entorno se requiere Docker Compose y ejecutar los pasos descritos después del
+bloque heredado de referencia.
 
 ``` dotenv
 APP_ENV=development
@@ -1222,8 +1244,43 @@ Los valores son ilustrativos. La configuración definitiva debe validar
 las variables obligatorias y fallar de manera segura si falta un
 secreto.
 
-No subir `.env` al repositorio. Utilizar secretos del entorno de
-despliegue.
+Ese bloque es una referencia heredada y no es la configuración activa. No
+subir `.env` al repositorio.
+
+### Entorno local implementado
+
+1. Copia el `.env.example` de la raíz a `.env` y sustituye
+   `POSTGRES_PASSWORD`.
+2. Ejecuta `docker compose up --build`. El API aplica las migraciones al
+   arrancar y expone `/api/v1`; PostgreSQL usa PostGIS y Redis controla el
+   límite de solicitudes.
+3. Ejecuta `yarn start` o `npm start`. La configuración local apunta a
+   `http://localhost:8000/api/v1`; el acceso de desarrollo aparece solo si
+   `REACT_APP_ENABLE_DEV_AUTH=true` y el API tiene `APP_ENV=development` más
+   `DEV_AUTH_ENABLED=true`.
+4. Para probar recolección, primero registra una zona GeoJSON segura,
+   verificada y de acceso público desde `backend/`, y crea un punto dentro de
+   ella con `python -m app.cli create-zone` y
+   `python -m app.cli create-spawn`. Los comandos requieren coordenadas reales
+   y una zona habilitada. Los puntos `--dynamic` se generan por el worker;
+   los fijos crean una aparición al provisionarse.
+5. Si se usa Telegram, configura `TELEGRAM_BOT_TOKEN` fuera del repositorio y
+   registra el dominio HTTPS de la Mini App con el bot.
+
+`docker-compose.yml` no proporciona ubicaciones de juego iniciales. Sin una
+zona y un punto aprobados, el mapa real se muestra sin coleccionables, no con
+un resultado ficticio.
+
+### Producción
+
+Configura `APP_ENV=production`, `TELEGRAM_BOT_TOKEN`,
+`SESSION_COOKIE_SECURE=true`, `SESSION_COOKIE_SAMESITE=none` si el frontend y
+el API son cross-site, y `CORS_ORIGINS` con los dominios HTTPS exactos. El API
+rechaza el login de desarrollo en producción. El frontend necesita
+`REACT_APP_API_BASE_URL` en el momento de compilar; si falta, informa que no
+hay API configurada. GitHub Pages es hosting estático: para sesiones con
+cookies, usa dominios compatibles con las políticas de cookies de terceros o
+un frontend/API bajo el mismo sitio.
 
 ------------------------------------------------------------------------
 

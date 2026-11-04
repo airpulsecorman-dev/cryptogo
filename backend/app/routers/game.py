@@ -47,7 +47,9 @@ def _player_payload(user: User, profile: PlayerProfile) -> dict:
     }
 
 
-def _log_anomaly(db: Session, user_id: UUID, spawn_id: UUID | None, reason: str) -> None:
+def _log_anomaly(
+    db: Session, user_id: UUID, spawn_id: UUID | None, reason: str
+) -> None:
     db.add(AntiCheatEvent(user_id=user_id, spawn_instance_id=spawn_id, reason=reason))
     db.commit()
 
@@ -57,16 +59,29 @@ def _collect_rate_limit(request: Request, user_id: UUID) -> None:
         return
     try:
         key = f"rate:collect:{user_id}:{int(utcnow().timestamp()) // 60}"
-        count = request.app.state.redis.incr(key)
-        if count == 1:
-            request.app.state.redis.expire(key, 61)
+        count = request.app.state.redis.eval(
+            "local count = redis.call('INCR', KEYS[1]); "
+            "if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]); end; "
+            "return count",
+            1,
+            key,
+            61,
+        )
     except redis.RedisError as error:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "El control de solicitudes no está disponible.") from error
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "El control de solicitudes no está disponible.",
+        ) from error
     if count > 20:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Se alcanzó el límite temporal de recolecciones.")
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Se alcanzó el límite temporal de recolecciones.",
+        )
 
 
-def _distance(db: Session, latitude: float, longitude: float, spawn: SpawnInstance) -> float:
+def _distance(
+    db: Session, latitude: float, longitude: float, spawn: SpawnInstance
+) -> float:
     if db.bind.dialect.name == "postgresql":
         return float(
             db.execute(
@@ -101,7 +116,10 @@ def get_nearby_collectibles(
     db: Session = Depends(get_db),
 ):
     if not point_is_in_enabled_zone(db, latitude, longitude):
-        return {"items": [], "message": "No hay una zona de juego habilitada en esta ubicación."}
+        return {
+            "items": [],
+            "message": "No hay una zona de juego habilitada en esta ubicación.",
+        }
     now = utcnow()
     rows = nearby_rows(db, latitude, longitude, radius_meters, now)
     items = [
@@ -134,7 +152,11 @@ def get_nearby_zones(
     zones = db.query(Zone).filter(Zone.enabled.is_(True)).all()
     return {
         "items": [
-            {"id": zone.id, "name": zone.name, "boundary": json.loads(zone.boundary_geojson)}
+            {
+                "id": zone.id,
+                "name": zone.name,
+                "boundary": json.loads(zone.boundary_geojson),
+            }
             for zone in zones
             if point_is_in_enabled_zone(db, latitude, longitude, zone.id)
         ]
@@ -147,19 +169,12 @@ def collect(
     request: Request,
     player=Depends(get_current_player),
     db: Session = Depends(get_db),
-    idempotency_key: str = Header(min_length=16, max_length=128, alias="Idempotency-Key"),
+    idempotency_key: str = Header(
+        min_length=16, max_length=128, alias="Idempotency-Key"
+    ),
 ):
-    user, profile = player
+    user, _profile = player
     _collect_rate_limit(request, user.id)
-
-    now = utcnow()
-    age = now - body.client_timestamp.astimezone(timezone.utc)
-    if age < timedelta(seconds=-15) or age > timedelta(seconds=request.app.state.settings.max_client_location_age_seconds):
-        _log_anomaly(db, user.id, body.spawn_instance_id, "stale_or_future_location")
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La ubicación es demasiado antigua.")
-    if body.accuracy_meters > request.app.state.settings.max_location_accuracy_meters:
-        _log_anomaly(db, user.id, body.spawn_instance_id, "low_location_accuracy")
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La ubicación no tiene precisión suficiente.")
 
     request_hash = hashlib.sha256(body.model_dump_json().encode()).hexdigest()
     existing = db.scalar(
@@ -170,8 +185,27 @@ def collect(
     )
     if existing is not None:
         if existing.request_hash != request_hash:
-            raise HTTPException(status.HTTP_409_CONFLICT, "La clave de idempotencia ya se usó con otra solicitud.")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La clave de idempotencia ya se usó con otra solicitud.",
+            )
         return existing.response_body
+
+    now = utcnow()
+    age = now - body.client_timestamp.astimezone(timezone.utc)
+    if age < timedelta(seconds=-15) or age > timedelta(
+        seconds=request.app.state.settings.max_client_location_age_seconds
+    ):
+        _log_anomaly(db, user.id, body.spawn_instance_id, "stale_or_future_location")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "La ubicación es demasiado antigua."
+        )
+    if body.accuracy_meters > request.app.state.settings.max_location_accuracy_meters:
+        _log_anomaly(db, user.id, body.spawn_instance_id, "low_location_accuracy")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "La ubicación no tiene precisión suficiente.",
+        )
 
     spawn = db.scalar(
         select(SpawnInstance)
@@ -191,11 +225,16 @@ def collect(
     )
     if existing is not None:
         if existing.request_hash != request_hash:
-            raise HTTPException(status.HTTP_409_CONFLICT, "La clave de idempotencia ya se usó con otra solicitud.")
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "La clave de idempotencia ya se usó con otra solicitud.",
+            )
         return existing.response_body
 
     if spawn.state != "available":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Este objeto ya no está disponible.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Este objeto ya no está disponible."
+        )
     expires_at = spawn.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -204,21 +243,39 @@ def collect(
         db.commit()
         raise HTTPException(status.HTTP_410_GONE, "Este objeto expiró.")
 
-    if not point_is_in_enabled_zone(db, spawn.latitude, spawn.longitude, spawn.zone_id) or not point_is_in_enabled_zone(
-        db, body.latitude, body.longitude, spawn.zone_id
-    ):
+    if not point_is_in_enabled_zone(
+        db, spawn.latitude, spawn.longitude, spawn.zone_id
+    ) or not point_is_in_enabled_zone(db, body.latitude, body.longitude, spawn.zone_id):
         _log_anomaly(db, user.id, spawn.id, "outside_enabled_zone")
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "La ubicación está fuera de una zona habilitada.")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "La ubicación está fuera de una zona habilitada."
+        )
 
     distance = _distance(db, body.latitude, body.longitude, spawn)
-    if distance > min(spawn.collection_radius_meters, request.app.state.settings.collect_radius_meters):
+    if distance > min(
+        spawn.collection_radius_meters, request.app.state.settings.collect_radius_meters
+    ):
         _log_anomaly(db, user.id, spawn.id, "outside_collection_radius")
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Debes acercarte más al objeto para recogerlo.")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Debes acercarte más al objeto para recogerlo."
+        )
 
     collectible = db.get(Collectible, spawn.collectible_id)
     if collectible is None or not collectible.enabled:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Este objeto ya no está disponible.")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Este objeto ya no está disponible."
+        )
 
+    profile = db.scalar(
+        select(PlayerProfile)
+        .where(PlayerProfile.user_id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if profile is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "El perfil del jugador no está disponible."
+        )
     collection = Collection(
         user_id=user.id,
         spawn_instance_id=spawn.id,
@@ -277,7 +334,9 @@ def collect(
         )
         if retry is not None and retry.request_hash == request_hash:
             return retry.response_body
-        raise HTTPException(status.HTTP_409_CONFLICT, "Este objeto ya fue recogido.") from error
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Este objeto ya fue recogido."
+        ) from error
     except SQLAlchemyError:
         db.rollback()
         raise
@@ -378,7 +437,9 @@ def readiness(request: Request, db: Session = Depends(get_db)):
         if request.app.state.settings.app_env != "test":
             request.app.state.redis.ping()
     except (SQLAlchemyError, redis.RedisError) as error:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Una dependencia no está disponible.") from error
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "Una dependencia no está disponible."
+        ) from error
     return {"status": "ready"}
 
 
@@ -388,9 +449,33 @@ def get_ledger(
     db: Session = Depends(get_db),
 ):
     user, _profile = player
-    points = db.query(PointTransaction).filter(PointTransaction.user_id == user.id).order_by(PointTransaction.created_at.desc()).all()
-    xp = db.query(XPTransaction).filter(XPTransaction.user_id == user.id).order_by(XPTransaction.created_at.desc()).all()
+    points = (
+        db.query(PointTransaction)
+        .filter(PointTransaction.user_id == user.id)
+        .order_by(PointTransaction.created_at.desc())
+        .all()
+    )
+    xp = (
+        db.query(XPTransaction)
+        .filter(XPTransaction.user_id == user.id)
+        .order_by(XPTransaction.created_at.desc())
+        .all()
+    )
     return {
-        "points": [{"amount": item.amount, "collection_id": item.collection_id, "created_at": item.created_at} for item in points],
-        "xp": [{"amount": item.amount, "collection_id": item.collection_id, "created_at": item.created_at} for item in xp],
+        "points": [
+            {
+                "amount": item.amount,
+                "collection_id": item.collection_id,
+                "created_at": item.created_at,
+            }
+            for item in points
+        ],
+        "xp": [
+            {
+                "amount": item.amount,
+                "collection_id": item.collection_id,
+                "created_at": item.created_at,
+            }
+            for item in xp
+        ],
     }

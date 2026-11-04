@@ -88,6 +88,15 @@ class SpawnPoint(Base):
     __table_args__ = (
         CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_spawn_point_latitude"),
         CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_spawn_point_longitude"),
+        CheckConstraint(
+            "visibility_radius_meters BETWEEN 1 AND 5000", name="ck_spawn_point_visibility_radius"
+        ),
+        CheckConstraint(
+            "collection_radius_meters BETWEEN 1 AND 35", name="ck_spawn_point_collection_radius"
+        ),
+        CheckConstraint(
+            "expires_after_seconds BETWEEN 60 AND 604800", name="ck_spawn_point_expiration"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -108,6 +117,12 @@ class SpawnInstance(Base):
     __table_args__ = (
         CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_spawn_latitude"),
         CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_spawn_longitude"),
+        CheckConstraint(
+            "visibility_radius_meters BETWEEN 1 AND 5000", name="ck_spawn_visibility_radius"
+        ),
+        CheckConstraint(
+            "collection_radius_meters BETWEEN 1 AND 35", name="ck_spawn_collection_radius"
+        ),
         CheckConstraint("state IN ('available', 'collected', 'expired')", name="ck_spawn_state"),
     )
 

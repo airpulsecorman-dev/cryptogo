@@ -3,6 +3,9 @@ from datetime import timedelta
 
 from sqlalchemy import select
 
+from .config import Settings
+from pathlib import Path
+
 from .database import create_session_factory
 from .models import SpawnInstance, SpawnPoint, Zone, utcnow
 
@@ -51,9 +54,8 @@ def generate_dynamic_spawns(session_factory) -> int:
 
 
 def run():
-    import os
-
-    session_factory = create_session_factory(os.environ["DATABASE_URL"])
+    settings = Settings(_env_file=Path(__file__).resolve().parents[2] / ".env")
+    session_factory = create_session_factory(settings.connection_url)
     while True:
         generate_dynamic_spawns(session_factory)
         time.sleep(15)

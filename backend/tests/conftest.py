@@ -29,47 +29,33 @@ def client():
 
 
 def create_player(client: TestClient, telegram_id: int = 123456, name: str = "Test Player") -> dict:
-    response = client.post(
-        "/api/v1/auth/dev",
-        json={"telegram_id": telegram_id, "first_name": name},
-    )
-    assert response.status_code == 404
-    # Tests provision a session with the same database models as the app;
-    # development authentication is separately covered as disabled here.
-    factory = client.app.state.session_factory
-    with factory() as db:
-        user = db.query(User).filter_by(telegram_id=telegram_id).one_or_none()
-        if user is None:
-            user = User(telegram_id=telegram_id, first_name=name)
-            db.add(user)
-            db.flush()
-        if db.get(PlayerProfile, user.id) is None:
-            db.add(PlayerProfile(user_id=user.id))
-        db.commit()
-    # Sign a valid Telegram initData payload using the configured test token.
+    response = client.post("/api/v1/auth/telegram", json={"init_data": telegram_init_data(telegram_id, name)})
+    assert response.status_code == 200
+    return response.json()
+
+
+def telegram_init_data(telegram_id=123456, name="Test Player", *, auth_timestamp=None):
     import hashlib
     import hmac
     from urllib.parse import urlencode
 
     fields = {
-        "auth_date": str(int(utcnow().timestamp())),
+        "auth_date": str(int((auth_timestamp or utcnow()).timestamp())),
         "user": json.dumps({"id": telegram_id, "first_name": name}, separators=(",", ":")),
     }
     check_string = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
     secret_key = hmac.new(b"WebAppData", b"test-bot-token", hashlib.sha256).digest()
     fields["hash"] = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-    auth = client.post("/api/v1/auth/telegram", json={"init_data": urlencode(fields)})
-    assert auth.status_code == 200
-    return auth.json()
+    return urlencode(fields)
 
 
-def collect_request(spawn_id, *, latitude=0.0, longitude=0.0):
+def collect_request(spawn_id, *, latitude=0.0, longitude=0.0, accuracy=5, timestamp=None):
     return {
         "spawn_instance_id": spawn_id,
         "latitude": latitude,
         "longitude": longitude,
-        "accuracy_meters": 5,
-        "client_timestamp": utcnow().isoformat(),
+        "accuracy_meters": accuracy,
+        "client_timestamp": (timestamp or utcnow()).isoformat(),
     }
 
 

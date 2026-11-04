@@ -32,7 +32,8 @@ services:
       dockerfile: Dockerfile.api
     environment:
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+psycopg://cryptogo:${POSTGRES_PASSWORD}@postgres:5432/cryptogo
+      DATABASE_URL: postgresql+psycopg://cryptogo@postgres:5432/cryptogo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       REDIS_URL: redis://redis:6379/0
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-false}
@@ -47,6 +48,17 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/health/live').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   spawn-worker:
     build:
@@ -54,9 +66,12 @@ services:
       dockerfile: Dockerfile.api
     command: ["python", "-m", "app.spawn_worker"]
     environment:
-      DATABASE_URL: postgresql+psycopg://cryptogo:${POSTGRES_PASSWORD}@postgres:5432/cryptogo
+      DATABASE_URL: postgresql+psycopg://cryptogo@postgres:5432/cryptogo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     depends_on:
       postgres:
+        condition: service_healthy
+      api:
         condition: service_healthy
 
 volumes:
