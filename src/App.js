@@ -1,69 +1,219 @@
-import { useState } from 'react';
-import './App.css';
-
-const initialDiscoveries = [
-  { id: 'btc', symbol: '₿', name: 'Bitcoin', ticker: 'BTC', rarity: 'Común', points: 10, distance: '42 m', className: 'bitcoin' },
-  { id: 'eth', symbol: '◆', name: 'Ethereum', ticker: 'ETH', rarity: 'Poco común', points: 25, distance: '180 m', className: 'ethereum' },
-  { id: 'sol', symbol: '◎', name: 'Solana', ticker: 'SOL', rarity: 'Épico', points: 100, distance: '320 m', className: 'solana' },
-];
+import { useCallback, useEffect, useMemo, useState } from "react";
+import "./App.css";
+import MapView from "./MapView";
+import { api, developmentAuthEnabled } from "./api";
 
 const sections = [
-  { id: 'map', icon: '⌖', label: 'Mapa' },
-  { id: 'inventory', icon: '▦', label: 'Inventario' },
-  { id: 'missions', icon: '✳', label: 'Misiones' },
-  { id: 'leaderboard', icon: '♛', label: 'Ranking' },
-  { id: 'profile', icon: '◉', label: 'Perfil' },
+  { id: "map", icon: "⌖", label: "Mapa" },
+  { id: "inventory", icon: "▦", label: "Inventario" },
+  { id: "missions", icon: "✳", label: "Misiones" },
+  { id: "leaderboard", icon: "♛", label: "Ranking" },
+  { id: "profile", icon: "◉", label: "Perfil" },
 ];
 
-const initialInventory = { BTC: 7, ETH: 5, BNB: 3, SOL: 3 };
-const LOCATION_PERMISSION_DENIED = 1;
-
 function App() {
-  const [activeSection, setActiveSection] = useState('map');
-  const [discoveries, setDiscoveries] = useState(initialDiscoveries);
-  const [selectedId, setSelectedId] = useState('btc');
-  const [inventory, setInventory] = useState(initialInventory);
-  const [points, setPoints] = useState(1280);
-  const [collectedCount, setCollectedCount] = useState(18);
-  const [locationMessage, setLocationMessage] = useState('');
-  const [notice, setNotice] = useState('');
-  const [mapZoom, setMapZoom] = useState(1);
+  const [activeSection, setActiveSection] = useState("map");
+  const [player, setPlayer] = useState(null);
+  const [authenticationError, setAuthenticationError] = useState("");
+  const [authenticating, setAuthenticating] = useState(true);
+  const [position, setPosition] = useState(null);
+  const [locationMessage, setLocationMessage] = useState("");
+  const [discoveries, setDiscoveries] = useState([]);
+  const [zones, setZones] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [mapZoom, setMapZoom] = useState(5);
+  const [inventory, setInventory] = useState(null);
+  const [missions, setMissions] = useState(null);
+  const [leaderboard, setLeaderboard] = useState(null);
+  const [loadingSection, setLoadingSection] = useState(false);
+  const [pageError, setPageError] = useState("");
+  const [collecting, setCollecting] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  const selectedDiscovery = discoveries.find(({ id }) => id === selectedId);
+  const selectedDiscovery = useMemo(
+    () => discoveries.find(({ id }) => id === selectedId),
+    [discoveries, selectedId],
+  );
+  const handleZoomChange = useCallback((zoom) => setMapZoom(zoom), []);
+
+  useEffect(() => {
+    let active = true;
+    async function initializeSession() {
+      try {
+        const existingPlayer = await api.profile();
+        if (active) setPlayer(existingPlayer);
+      } catch (error) {
+        if (error.status !== 401) {
+          if (active) setAuthenticationError(error.message);
+          return;
+        }
+        const initData = window.Telegram?.WebApp?.initData;
+        if (!initData) {
+          if (active)
+            setAuthenticationError(
+              "Abre Crypto Go desde Telegram para iniciar sesión.",
+            );
+          return;
+        }
+        try {
+          window.Telegram?.WebApp?.ready();
+          const authenticatedPlayer = await api.authenticateTelegram(initData);
+          if (active) setPlayer(authenticatedPlayer);
+        } catch (authError) {
+          if (active) setAuthenticationError(authError.message);
+        }
+      } finally {
+        if (active) setAuthenticating(false);
+      }
+    }
+
+    initializeSession();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!player || !position) return undefined;
+    let active = true;
+    setLocationMessage("Buscando objetos y zonas habilitadas…");
+    Promise.all([api.nearby(position), api.zones(position)])
+      .then(([nearby, enabledZones]) => {
+        if (!active) return;
+        setDiscoveries(nearby.items);
+        setZones(enabledZones.items);
+        setSelectedId((current) =>
+          nearby.items.some(({ id }) => id === current)
+            ? current
+            : nearby.items[0]?.id || "",
+        );
+        setLocationMessage(
+          nearby.message ||
+            (nearby.items.length
+              ? `${nearby.items.length} objetos disponibles en esta zona.`
+              : "No hay objetos disponibles cerca."),
+        );
+      })
+      .catch((error) => {
+        if (active) setLocationMessage(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [player, position]);
+
+  useEffect(() => {
+    if (!player || activeSection === "map") return undefined;
+    let active = true;
+    setLoadingSection(true);
+    setPageError("");
+    const loaders = {
+      inventory: api.inventory,
+      missions: api.missions,
+      leaderboard: api.leaderboard,
+      profile: api.profile,
+    };
+    loaders[activeSection]()
+      .then((result) => {
+        if (!active) return;
+        if (activeSection === "inventory") setInventory(result);
+        if (activeSection === "missions") setMissions(result.items);
+        if (activeSection === "leaderboard") setLeaderboard(result.items);
+        if (activeSection === "profile") setPlayer(result);
+      })
+      .catch((error) => {
+        if (active) setPageError(error.message);
+      })
+      .finally(() => {
+        if (active) setLoadingSection(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeSection, player]);
+
+  function signInAsDeveloper() {
+    setAuthenticating(true);
+    setAuthenticationError("");
+    api
+      .authenticateDevelopment()
+      .then(setPlayer)
+      .catch((error) => setAuthenticationError(error.message))
+      .finally(() => setAuthenticating(false));
+  }
 
   function locatePlayer() {
     if (!navigator.geolocation) {
-      setLocationMessage('Este navegador no permite consultar la ubicación.');
+      setLocationMessage("Este navegador no permite consultar la ubicación.");
       return;
     }
-
-    setLocationMessage('Solicitando permiso de ubicación…');
+    setLocationMessage("Solicitando permiso para usar tu ubicación…");
     navigator.geolocation.getCurrentPosition(
-      () => setLocationMessage('Ubicación detectada. El mapa aún usa datos de demostración.'),
-      (error) => {
-        const message = error.code === LOCATION_PERMISSION_DENIED
-          ? 'Permiso de ubicación denegado. Puedes explorar la demostración.'
-          : 'No se pudo obtener tu ubicación. Inténtalo de nuevo cuando estés listo.';
-        setLocationMessage(message);
+      ({ coords }) => {
+        const nextPosition = {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          accuracy: coords.accuracy,
+          timestamp: new Date().toISOString(),
+        };
+        setPosition(nextPosition);
+        setLocationMessage("Ubicación GPS detectada. Consultando el mapa…");
       },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      (error) => {
+        const messages = {
+          1: "Permiso de ubicación denegado. Habilítalo en tu navegador para consultar el mapa.",
+          2: "No se pudo determinar tu ubicación. Comprueba la señal GPS e inténtalo de nuevo.",
+          3: "La solicitud de ubicación expiró. Inténtalo de nuevo.",
+        };
+        setLocationMessage(
+          messages[error.code] || "No se pudo obtener tu ubicación.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
   }
 
-  function collectDiscovery() {
-    if (!selectedDiscovery) return;
+  async function collectDiscovery() {
+    if (!selectedDiscovery || !position || collecting) return;
+    setCollecting(true);
+    setPageError("");
+    try {
+      const result = await api.collect(position, selectedDiscovery.id);
+      setPlayer(result.player);
+      setNotice(
+        `${result.message} · +${result.rewards.points} puntos · +${result.rewards.xp} XP`,
+      );
+      const [nearby, enabledZones] = await Promise.all([
+        api.nearby(position),
+        api.zones(position),
+      ]);
+      setDiscoveries(nearby.items);
+      setZones(enabledZones.items);
+      setSelectedId(nearby.items[0]?.id || "");
+      setLocationMessage(
+        nearby.message ||
+          (nearby.items.length
+            ? `${nearby.items.length} objetos disponibles en esta zona.`
+            : "No hay objetos disponibles cerca."),
+      );
+      if (activeSection === "inventory") setInventory(await api.inventory());
+    } catch (error) {
+      setPageError(error.message);
+    } finally {
+      setCollecting(false);
+    }
+  }
 
-    setPoints((current) => current + selectedDiscovery.points);
-    setCollectedCount((current) => current + 1);
-    setInventory((current) => ({
-      ...current,
-      [selectedDiscovery.ticker]: (current[selectedDiscovery.ticker] || 0) + 1,
-    }));
-    setDiscoveries((current) => current.filter(({ id }) => id !== selectedDiscovery.id));
-    const nextDiscovery = discoveries.find(({ id }) => id !== selectedDiscovery.id);
-    setSelectedId(nextDiscovery?.id || '');
-    setNotice(`${selectedDiscovery.ticker} añadido a tu colección · +${selectedDiscovery.points} puntos`);
-    window.setTimeout(() => setNotice(''), 3500);
+  if (authenticating)
+    return <LoadingScreen message="Conectando con Crypto Go…" />;
+  if (!player) {
+    return (
+      <AuthenticationScreen
+        error={authenticationError}
+        onDevelopmentLogin={signInAsDeveloper}
+        showDevelopmentLogin={developmentAuthEnabled}
+      />
+    );
   }
 
   return (
@@ -72,22 +222,36 @@ function App() {
         <a
           className="brand"
           href="#inicio"
-          aria-label="Crypto Hunt, inicio"
+          aria-label="Crypto Go, inicio"
           onClick={(event) => {
             event.preventDefault();
-            setActiveSection('map');
+            setActiveSection("map");
           }}
         >
-          <span className="brand-mark">C<span>H</span></span>
-          <span className="brand-name">CRYPTO<span>HUNT</span></span>
+          <span className="brand-mark">
+            C<span>G</span>
+          </span>
+          <span className="brand-name">
+            CRYPTO<span>GO</span>
+          </span>
         </a>
         <div className="topbar-right">
-          <div className="points-pill" aria-label={`${points.toLocaleString('es-EC')} puntos`}>
+          <div
+            className="points-pill"
+            aria-label={`${player.points.toLocaleString("es-EC")} puntos`}
+          >
             <span className="points-star">✦</span>
-            <span>{points.toLocaleString('es-EC')} <small>PTS</small></span>
+            <span>
+              {player.points.toLocaleString("es-EC")} <small>PTS</small>
+            </span>
           </div>
-          <button className="avatar-button" onClick={() => setActiveSection('profile')} aria-label="Abrir perfil">
-            <span>AH</span><i aria-hidden="true" />
+          <button
+            className="avatar-button"
+            onClick={() => setActiveSection("profile")}
+            aria-label="Abrir perfil"
+          >
+            <span>{initials(player.first_name)}</span>
+            <i aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -99,56 +263,99 @@ function App() {
             {sections.map((section) => (
               <button
                 key={section.id}
-                className={`nav-item ${activeSection === section.id ? 'active' : ''}`}
+                className={`nav-item ${activeSection === section.id ? "active" : ""}`}
                 onClick={() => setActiveSection(section.id)}
-                aria-current={activeSection === section.id ? 'page' : undefined}
+                aria-current={activeSection === section.id ? "page" : undefined}
               >
-                <span className="nav-icon" aria-hidden="true">{section.icon}</span>
+                <span className="nav-icon" aria-hidden="true">
+                  {section.icon}
+                </span>
                 <span>{section.label}</span>
-                {section.id === 'missions' && <span className="nav-dot" aria-label="Nuevas misiones" />}
               </button>
             ))}
           </nav>
           <div className="sidebar-bottom">
             <div className="level-card">
-              <div className="level-top"><span>NIVEL 04</span><span>340 / 500 XP</span></div>
-              <div className="xp-track"><span /></div>
+              <div className="level-top">
+                <span>NIVEL {String(player.level).padStart(2, "0")}</span>
+                <span>
+                  {player.xp_into_level} / {player.xp_for_next_level} XP
+                </span>
+              </div>
+              <div className="xp-track">
+                <span
+                  style={{
+                    width: `${Math.min(100, (player.xp_into_level / player.xp_for_next_level) * 100)}%`,
+                  }}
+                />
+              </div>
               <p>¡Sigue explorando!</p>
             </div>
-            <div className="beta-label"><span /> BETA PRIVADA <b>EC</b></div>
+            <div className="beta-label">
+              <span /> BETA PRIVADA <b>EC</b>
+            </div>
           </div>
         </aside>
 
         <main className="main-content">
-          {activeSection === 'map' && (
+          {activeSection === "map" && (
             <MapSection
               discoveries={discoveries}
-              selectedId={selectedId}
               selectedDiscovery={selectedDiscovery}
+              selectedId={selectedId}
               locationMessage={locationMessage}
+              position={position}
+              zones={zones}
               mapZoom={mapZoom}
+              collecting={collecting}
+              pageError={pageError}
               onSelect={setSelectedId}
               onLocate={locatePlayer}
               onCollect={collectDiscovery}
-              onZoomIn={() => setMapZoom((current) => Math.min(1.5, Number((current + 0.1).toFixed(1))))}
-              onZoomOut={() => setMapZoom((current) => Math.max(0.8, Number((current - 0.1).toFixed(1))))}
+              onZoomChange={handleZoomChange}
             />
           )}
-          {activeSection === 'inventory' && <InventorySection inventory={inventory} collectedCount={collectedCount} points={points} />}
-          {activeSection === 'missions' && <MissionsSection />}
-          {activeSection === 'leaderboard' && <LeaderboardSection points={points} />}
-          {activeSection === 'profile' && <ProfileSection points={points} collectedCount={collectedCount} />}
+          {activeSection === "inventory" && (
+            <LoadedSection loading={loadingSection} error={pageError}>
+              {inventory && (
+                <InventorySection
+                  inventory={inventory}
+                  points={player.points}
+                />
+              )}
+            </LoadedSection>
+          )}
+          {activeSection === "missions" && (
+            <LoadedSection loading={loadingSection} error={pageError}>
+              {missions && <MissionsSection missions={missions} />}
+            </LoadedSection>
+          )}
+          {activeSection === "leaderboard" && (
+            <LoadedSection loading={loadingSection} error={pageError}>
+              {leaderboard && <LeaderboardSection players={leaderboard} />}
+            </LoadedSection>
+          )}
+          {activeSection === "profile" && (
+            <LoadedSection loading={loadingSection} error={pageError}>
+              <ProfileSection player={player} />
+            </LoadedSection>
+          )}
         </main>
       </div>
 
-      {notice && <div className="toast" role="status"><span>✓</span>{notice}</div>}
+      {notice && (
+        <div className="toast" role="status">
+          <span>✓</span>
+          {notice}
+        </div>
+      )}
       <nav className="mobile-nav" aria-label="Navegación móvil">
         {sections.map((section) => (
           <button
             key={section.id}
-            className={activeSection === section.id ? 'active' : ''}
+            className={activeSection === section.id ? "active" : ""}
             onClick={() => setActiveSection(section.id)}
-            aria-current={activeSection === section.id ? 'page' : undefined}
+            aria-current={activeSection === section.id ? "page" : undefined}
           >
             <span aria-hidden="true">{section.icon}</span>
             <small>{section.label}</small>
@@ -159,62 +366,144 @@ function App() {
   );
 }
 
-function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessage, mapZoom, onSelect, onLocate, onCollect, onZoomIn, onZoomOut }) {
+function AuthenticationScreen({
+  error,
+  onDevelopmentLogin,
+  showDevelopmentLogin,
+}) {
+  return (
+    <main className="auth-screen">
+      <div className="auth-card">
+        <span className="brand-mark">
+          C<span>G</span>
+        </span>
+        <p className="eyebrow">GO. COLLECT. LEVEL UP.</p>
+        <h1>
+          Crypto<span>Go</span>
+        </h1>
+        <p className="subheading">
+          Inicia sesión con Telegram para continuar tu aventura.
+        </p>
+        {error && (
+          <p className="auth-error" role="alert">
+            {error}
+          </p>
+        )}
+        {showDevelopmentLogin && (
+          <button className="collect-button" onClick={onDevelopmentLogin}>
+            Entrar como jugador local (solo desarrollo)
+          </button>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function LoadingScreen({ message }) {
+  return (
+    <main className="auth-screen" role="status">
+      <p>{message}</p>
+    </main>
+  );
+}
+
+function LoadedSection({ loading, error, children }) {
+  if (loading) return <LoadingScreen message="Cargando datos del servidor…" />;
+  if (error)
+    return (
+      <p className="section-error" role="alert">
+        {error}
+      </p>
+    );
+  return children;
+}
+
+function MapSection({
+  discoveries,
+  selectedDiscovery,
+  selectedId,
+  locationMessage,
+  position,
+  zones,
+  mapZoom,
+  collecting,
+  pageError,
+  onSelect,
+  onLocate,
+  onCollect,
+  onZoomChange,
+}) {
+  const canCollect =
+    selectedDiscovery &&
+    position &&
+    selectedDiscovery.distance_meters <=
+      selectedDiscovery.collection_radius_meters;
   return (
     <>
       <div className="page-heading map-heading">
         <div>
-          <p className="eyebrow"><span className="live-dot" /> ZONA ACTIVA · QUITO, EC</p>
-          <h1>Sal a explorar<span>.</span></h1>
-          <p className="subheading">Hay tesoros esperándote cerca.</p>
+          <p className="eyebrow">
+            <span className="live-dot" />{" "}
+            {zones.length ? "ZONA HABILITADA" : "UBICACIÓN ACTUAL"}
+          </p>
+          <h1>
+            Sal a explorar<span>.</span>
+          </h1>
+          <p className="subheading">
+            Consulta objetos disponibles en zonas verificadas.
+          </p>
         </div>
-        <button className="location-button" onClick={onLocate}><span aria-hidden="true">⌖</span> Mi ubicación</button>
+        <button className="location-button" onClick={onLocate}>
+          <span aria-hidden="true">⌖</span> Mi ubicación
+        </button>
       </div>
-      {locationMessage && <p className="location-message" role="status">{locationMessage}</p>}
+      {locationMessage && (
+        <p className="location-message" role="status">
+          {locationMessage}
+        </p>
+      )}
+      {pageError && (
+        <p className="location-message error-message" role="alert">
+          {pageError}
+        </p>
+      )}
 
       <div className="map-layout">
-        <section className="map-panel" aria-label="Mapa de demostración">
-          <div className="map-canvas">
-            <div className="map-scene" style={{ transform: `scale(${mapZoom})` }}>
-            <div className="map-water" />
-            <div className="map-park park-one"><span>PARQUE</span><i>✳</i></div>
-            <div className="map-park park-two"><i>✳</i></div>
-            <div className="map-road road-one" />
-            <div className="map-road road-two" />
-            <div className="map-road road-three" />
-            <div className="map-road road-four" />
-            <div className="map-road road-five" />
-            <span className="street-label street-one">Av. República</span>
-            <span className="street-label street-two">Av. 6 de Diciembre</span>
-            <div className="player-marker" aria-label="Tu ubicación aproximada"><span /></div>
-            {discoveries.map((discovery, index) => (
-              <button
-                key={discovery.id}
-                className={`map-coin ${discovery.className} coin-${index + 1} ${selectedId === discovery.id ? 'selected' : ''}`}
-                onClick={() => onSelect(discovery.id)}
-                aria-label={`Seleccionar ${discovery.name}, a ${discovery.distance}`}
-                aria-pressed={selectedId === discovery.id}
-              >
-                {discovery.symbol}
-              </button>
-            ))}
-            </div>
-            <div className="map-control-stack">
-              <button aria-label="Acercar mapa" title="Acercar mapa" onClick={onZoomIn} disabled={mapZoom >= 1.5}>+</button>
-              <button aria-label="Alejar mapa" title="Alejar mapa" onClick={onZoomOut} disabled={mapZoom <= 0.8}>−</button>
-            </div>
-            <div className="map-zoom-level" aria-live="polite">Zoom {Math.round(mapZoom * 100)}%</div>
-            <div className="map-attribution">Mapa ilustrativo · Ubicaciones ficticias</div>
+        <section className="map-panel" aria-label="Mapa de Crypto Go">
+          <div className="map-canvas maplibre-canvas">
+            <MapView
+              position={position}
+              discoveries={discoveries}
+              zones={zones}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              zoom={mapZoom}
+              onZoomChange={onZoomChange}
+            />
           </div>
           <div className="map-footer">
-            <span><i className="legend-player" /> Tu ubicación aproximada</span>
-            <span><i className="legend-coin" /> {discoveries.length} tesoros cercanos</span>
+            <span>
+              {position ? (
+                <>
+                  <i className="legend-player" /> Tu ubicación GPS
+                </>
+              ) : (
+                "La ubicación se solicita solo cuando la pides"
+              )}
+            </span>
+            <span>
+              <i className="legend-coin" /> {discoveries.length} objetos
+              cercanos
+            </span>
           </div>
         </section>
 
         <aside className="discovery-panel">
           <div className="panel-heading">
-            <div><p className="eyebrow">A TU ALREDEDOR</p><h2>Tesoros cercanos</h2></div>
+            <div>
+              <p className="eyebrow">A TU ALREDEDOR</p>
+              <h2>Objetos cercanos</h2>
+            </div>
             <span className="count-badge">{discoveries.length}</span>
           </div>
           {discoveries.length > 0 ? (
@@ -222,40 +511,85 @@ function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessag
               {discoveries.map((discovery) => (
                 <button
                   key={discovery.id}
-                  className={`discovery-card ${selectedId === discovery.id ? 'selected' : ''}`}
+                  className={`discovery-card ${selectedId === discovery.id ? "selected" : ""}`}
                   onClick={() => onSelect(discovery.id)}
                   aria-pressed={selectedId === discovery.id}
                 >
-                  <span className={`coin-icon ${discovery.className}`}>{discovery.symbol}</span>
+                  <span
+                    className={`coin-icon ${markerClass(discovery.ticker)}`}
+                  >
+                    {discovery.symbol}
+                  </span>
                   <span className="discovery-info">
                     <strong>{discovery.name}</strong>
-                    <small>{discovery.rarity} <i /> {discovery.distance}</small>
+                    <small>
+                      {formatRarity(discovery.rarity)} <i />{" "}
+                      {formatDistance(discovery.distance_meters)}
+                    </small>
                   </span>
-                  <span className="discovery-points">+{discovery.points}<small>PTS</small></span>
+                  <span className="discovery-points">{discovery.ticker}</span>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="empty-discoveries"><span>✦</span><strong>¡Los encontraste todos!</strong><p>Vuelve pronto para buscar nuevos tesoros.</p></div>
+            <div className="empty-discoveries">
+              <span>✦</span>
+              <strong>
+                {position
+                  ? "No hay objetos disponibles"
+                  : "Activa tu ubicación"}
+              </strong>
+              <p>
+                {position
+                  ? "No se encontraron apariciones habilitadas en tu zona."
+                  : "Solicita GPS para consultar zonas y objetos cercanos."}
+              </p>
+            </div>
           )}
           {selectedDiscovery ? (
             <div className="collect-card">
               <div className="collect-copy">
-                <span className="collect-ready"><i /> LISTO PARA RECOGER</span>
-                <p>Estás a <strong>{selectedDiscovery.distance}</strong> de un {selectedDiscovery.ticker}</p>
+                <span className="collect-ready">
+                  <i /> {canCollect ? "DENTRO DEL RADIO" : "ACÉRCATE AL OBJETO"}
+                </span>
+                <p>
+                  Distancia GPS:{" "}
+                  <strong>
+                    {formatDistance(selectedDiscovery.distance_meters)}
+                  </strong>
+                </p>
               </div>
-              <button className="collect-button" onClick={onCollect}>
-                <span aria-hidden="true">✦</span> Recoger {selectedDiscovery.ticker}
+              <button
+                className="collect-button"
+                onClick={onCollect}
+                disabled={!canCollect || collecting}
+              >
+                <span aria-hidden="true">✦</span>
+                {collecting
+                  ? "Recogiendo…"
+                  : `Recoger ${selectedDiscovery.ticker}`}
               </button>
-              <p className="demo-note">Acción de demostración · sin recompensas reales</p>
+              <p className="demo-note">
+                La distancia y la recompensa se validan en el servidor.
+              </p>
             </div>
           ) : (
             <div className="collect-card all-collected">
-              <p>No quedan tesoros en esta zona.</p>
-              <span>La ubicación y las apariciones son datos de demostración.</span>
+              <p>No hay objetos seleccionados.</p>
+              <span>
+                Las apariciones aparecen aquí cuando una zona habilitada tiene
+                objetos disponibles.
+              </span>
             </div>
           )}
-          <div className="safe-explore"><span aria-hidden="true">◎</span><p><strong>Explora con cuidado</strong><br />Presta atención a tu entorno mientras juegas.</p></div>
+          <div className="safe-explore">
+            <span aria-hidden="true">◎</span>
+            <p>
+              <strong>Explora con cuidado</strong>
+              <br />
+              Presta atención a tu entorno mientras juegas.
+            </p>
+          </div>
         </aside>
       </div>
     </>
@@ -263,114 +597,296 @@ function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessag
 }
 
 function SectionHeading({ eyebrow, title, description }) {
-  return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}<span>.</span></h1><p className="subheading">{description}</p></div></div>;
+  return (
+    <div className="page-heading">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h1>
+          {title}
+          <span>.</span>
+        </h1>
+        <p className="subheading">{description}</p>
+      </div>
+    </div>
+  );
 }
 
-function InventorySection({ inventory, collectedCount, points }) {
-  const coins = [
-    { ticker: 'BTC', name: 'Bitcoin', symbol: '₿', className: 'bitcoin', rarity: 'Común' },
-    { ticker: 'ETH', name: 'Ethereum', symbol: '◆', className: 'ethereum', rarity: 'Poco común' },
-    { ticker: 'BNB', name: 'BNB', symbol: '⬡', className: 'bnb', rarity: 'Raro' },
-    { ticker: 'SOL', name: 'Solana', symbol: '◎', className: 'solana', rarity: 'Épico' },
-  ];
+function InventorySection({ inventory, points }) {
+  const items = inventory.items || [];
   return (
     <>
-      <SectionHeading eyebrow="TU COLECCIÓN" title="Inventario" description="Cada hallazgo cuenta una historia." />
+      <SectionHeading
+        eyebrow="TU COLECCIÓN"
+        title="Inventario"
+        description="Objetos obtenidos en tus aventuras."
+      />
       <div className="stat-grid">
-        <StatCard label="TESOROS ENCONTRADOS" value={collectedCount} icon="✦" />
-        <StatCard label="MONEDAS DESCUBIERTAS" value={`${Object.values(inventory).filter(Boolean).length} / 12`} icon="◈" />
-        <StatCard label="PUNTOS TOTALES" value={points.toLocaleString('es-EC')} icon="✧" />
+        <StatCard
+          label="TESOROS ENCONTRADOS"
+          value={inventory.total_collected}
+          icon="✦"
+        />
+        <StatCard label="MONEDAS DESCUBIERTAS" value={items.length} icon="◈" />
+        <StatCard
+          label="PUNTOS TOTALES"
+          value={points.toLocaleString("es-EC")}
+          icon="✧"
+        />
       </div>
       <section className="collection-section">
-        <div className="section-title"><h2>Tus monedas</h2><span>{Object.values(inventory).reduce((total, count) => total + count, 0)} objetos</span></div>
-        <div className="coin-grid">
-          {coins.map((coin) => (
-            <article className="collection-card" key={coin.ticker}>
-              <span className={`coin-icon large ${coin.className}`}>{coin.symbol}</span>
-              <span className="rarity-label">{coin.rarity}</span>
-              <h3>{coin.name}</h3>
-              <p>{coin.ticker}</p>
-              <div className="collection-count"><span>En tu colección</span><strong>× {inventory[coin.ticker] || 0}</strong></div>
+        <div className="section-title">
+          <h2>Tus monedas</h2>
+          <span>{inventory.total_collected} objetos</span>
+        </div>
+        {items.length ? (
+          <div className="coin-grid">
+            {items.map((coin) => (
+              <article className="collection-card" key={coin.ticker}>
+                <span className={`coin-icon large ${markerClass(coin.ticker)}`}>
+                  {coin.symbol}
+                </span>
+                <span className="rarity-label">
+                  {formatRarity(coin.rarity)}
+                </span>
+                <h3>{coin.name}</h3>
+                <p>{coin.ticker}</p>
+                <div className="collection-count">
+                  <span>En tu colección</span>
+                  <strong>× {coin.count}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="empty-state">Todavía no has recogido objetos.</p>
+        )}
+        {inventory.history.length > 0 && (
+          <div className="collection-history">
+            <div className="section-title">
+              <h2>Historial reciente</h2>
+              <span>{inventory.history.length} movimientos</span>
+            </div>
+            {inventory.history.map((entry) => (
+              <div className="history-row" key={entry.collection_id}>
+                <span>
+                  {entry.name} · {entry.ticker}
+                </span>
+                <small>
+                  {new Date(entry.collected_at).toLocaleString("es-EC")}
+                </small>
+                <strong>
+                  +{entry.points} PTS · +{entry.xp} XP
+                </strong>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="disclaimer">
+          Los objetos son coleccionables virtuales y no representan
+          criptomonedas reales.
+        </p>
+      </section>
+    </>
+  );
+}
+
+function MissionsSection({ missions }) {
+  return (
+    <>
+      <SectionHeading
+        eyebrow="DESAFÍOS"
+        title="Misiones"
+        description="Consulta los desafíos habilitados para tu cuenta."
+      />
+      {missions.length ? (
+        <div className="mission-list">
+          {missions.map((mission) => (
+            <article className="mission-card" key={mission.id}>
+              <span className="mission-icon">{mission.icon || "✦"}</span>
+              <div className="mission-main">
+                <div className="mission-title">
+                  <h2>{mission.title}</h2>
+                  <span>{mission.reward_points} PTS</span>
+                </div>
+                <p>{mission.description}</p>
+                <div className="mission-progress">
+                  <span>
+                    <i
+                      style={{
+                        width: `${Math.min(100, (mission.progress / mission.target) * 100)}%`,
+                      }}
+                    />
+                  </span>
+                  <small>
+                    {mission.progress}/{mission.target}
+                  </small>
+                </div>
+              </div>
             </article>
           ))}
         </div>
-        <p className="disclaimer">Los objetos son coleccionables virtuales y no representan criptomonedas reales.</p>
-      </section>
+      ) : (
+        <p className="empty-state">
+          No hay misiones habilitadas en este momento.
+        </p>
+      )}
     </>
   );
 }
 
-function MissionsSection() {
-  const missions = [
-    { icon: '⌖', title: 'Primeros pasos', description: 'Explora el mapa y encuentra tu primer tesoro.', progress: 0, target: 1, reward: 25 },
-    { icon: '₿', title: 'Cazador de Bitcoin', description: 'Encuentra 3 monedas BTC.', progress: 2, target: 3, reward: 50 },
-    { icon: '✳', title: 'Paseo diario', description: 'Descubre 5 tesoros en tu aventura.', progress: 3, target: 5, reward: 75 },
-  ];
+function LeaderboardSection({ players }) {
   return (
     <>
-      <SectionHeading eyebrow="DESAFÍOS DIARIOS" title="Misiones" description="Pequeños retos, grandes aventuras." />
-      <div className="mission-banner"><span>✦</span><div><strong>Nuevas misiones cada día</strong><p>Completa desafíos para ganar puntos extra.</p></div><b>HOY</b></div>
-      <div className="mission-list">
-        {missions.map((mission) => (
-          <article className="mission-card" key={mission.title}>
-            <span className="mission-icon">{mission.icon}</span>
-            <div className="mission-main"><div className="mission-title"><h2>{mission.title}</h2><span>+{mission.reward} PTS</span></div><p>{mission.description}</p><div className="mission-progress"><span><i style={{ width: `${(mission.progress / mission.target) * 100}%` }} /></span><small>{mission.progress}/{mission.target}</small></div></div>
-          </article>
-        ))}
-      </div>
-      <p className="disclaimer">El progreso de las misiones es ilustrativo durante esta demostración.</p>
-    </>
-  );
-}
-
-function LeaderboardSection({ points }) {
-  const players = [
-    { rank: 1, initials: 'MV', name: 'María V.', points: 2450 },
-    { rank: 2, initials: 'CR', name: 'Carlos R.', points: 2180 },
-    { rank: 3, initials: 'LP', name: 'Lucía P.', points: 1940 },
-    { rank: 4, initials: 'AH', name: 'Tú', points, own: true },
-    { rank: 5, initials: 'DS', name: 'Diego S.', points: 1160 },
-  ];
-  return (
-    <>
-      <SectionHeading eyebrow="COMUNIDAD CRYPTO HUNT" title="Ranking" description="Los exploradores más activos de esta semana." />
-      <div className="leaderboard-card">
-        <div className="leaderboard-header"><span>POSICIÓN</span><span>EXPLORADOR</span><span>PUNTOS</span></div>
-        {players.map((player) => (
-          <div className={`leaderboard-row ${player.own ? 'own' : ''}`} key={player.rank}>
-            <span className={`rank-number rank-${player.rank}`}>{player.rank <= 3 ? '♛' : player.rank}</span>
-            <span className="player-identity"><i>{player.initials}</i><strong>{player.name}</strong>{player.own && <small>TÚ</small>}</span>
-            <strong className="leaderboard-score">{player.points.toLocaleString('es-EC')} <small>PTS</small></strong>
+      <SectionHeading
+        eyebrow="COMUNIDAD CRYPTO GO"
+        title="Ranking"
+        description="Clasificación calculada con los puntos registrados."
+      />
+      {players.length ? (
+        <div className="leaderboard-card">
+          <div className="leaderboard-header">
+            <span>POSICIÓN</span>
+            <span>EXPLORADOR</span>
+            <span>PUNTOS</span>
           </div>
-        ))}
-      </div>
-      <p className="disclaimer">Clasificación de demostración · los datos no corresponden a jugadores reales.</p>
+          {players.map((entry) => (
+            <div
+              className={`leaderboard-row ${entry.is_current_player ? "own" : ""}`}
+              key={`${entry.rank}-${entry.first_name}`}
+            >
+              <span className={`rank-number rank-${entry.rank}`}>
+                {entry.rank <= 3 ? "♛" : entry.rank}
+              </span>
+              <span className="player-identity">
+                <i>{initials(entry.first_name)}</i>
+                <strong>
+                  {entry.is_current_player ? "Tú" : entry.first_name}
+                </strong>
+                {entry.is_current_player && <small>TÚ</small>}
+              </span>
+              <strong className="leaderboard-score">
+                {entry.points.toLocaleString("es-EC")} <small>PTS</small>
+              </strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-state">Aún no hay jugadores en el ranking.</p>
+      )}
     </>
   );
 }
 
-function ProfileSection({ points, collectedCount }) {
+function ProfileSection({ player }) {
+  const xpRemaining = player.xp_for_next_level - player.xp_into_level;
   return (
     <>
-      <SectionHeading eyebrow="TU AVENTURA" title="Perfil" description="Tu progreso como explorador." />
+      <SectionHeading
+        eyebrow="TU AVENTURA"
+        title="Perfil"
+        description="Progreso sincronizado con tu cuenta."
+      />
       <section className="profile-card">
-        <div className="profile-avatar">AH</div>
-        <div className="profile-info"><p>EXPLORADOR</p><h2>Aventurero</h2><span>En Crypto Hunt desde hoy</span></div>
-        <div className="profile-level"><span>NIVEL</span><strong>04</strong></div>
+        <div className="profile-avatar">{initials(player.first_name)}</div>
+        <div className="profile-info">
+          <p>EXPLORADOR</p>
+          <h2>{player.first_name}</h2>
+          <span>
+            En Crypto Go desde{" "}
+            {new Date(player.registered_at).toLocaleDateString("es-EC")}
+          </span>
+        </div>
+        <div className="profile-level">
+          <span>NIVEL</span>
+          <strong>{String(player.level).padStart(2, "0")}</strong>
+        </div>
       </section>
       <div className="stat-grid profile-stats">
-        <StatCard label="PUNTOS" value={points.toLocaleString('es-EC')} icon="✦" />
-        <StatCard label="TESOROS" value={collectedCount} icon="◈" />
-        <StatCard label="RACHA ACTUAL" value="2 días" icon="⚡" />
+        <StatCard
+          label="PUNTOS"
+          value={player.points.toLocaleString("es-EC")}
+          icon="✦"
+        />
+        <StatCard label="TESOROS" value={player.collected_count} icon="◈" />
+        <StatCard
+          label="EXPERIENCIA TOTAL"
+          value={player.total_xp.toLocaleString("es-EC")}
+          icon="⚡"
+        />
       </div>
-      <section className="progress-card"><div className="section-title"><h2>Progreso al nivel 5</h2><span>340 / 500 XP</span></div><div className="xp-track wide"><span /></div><p>Te faltan <strong>160 XP</strong> para subir de nivel.</p></section>
-      <p className="disclaimer">Perfil de demostración · los datos se reinician al recargar la página.</p>
+      <section className="progress-card">
+        <div className="section-title">
+          <h2>Progreso al nivel {player.level + 1}</h2>
+          <span>
+            {player.xp_into_level} / {player.xp_for_next_level} XP
+          </span>
+        </div>
+        <div className="xp-track wide">
+          <span
+            style={{
+              width: `${Math.min(100, (player.xp_into_level / player.xp_for_next_level) * 100)}%`,
+            }}
+          />
+        </div>
+        <p>
+          Te faltan <strong>{xpRemaining} XP</strong> para subir de nivel.
+        </p>
+      </section>
     </>
   );
 }
 
 function StatCard({ label, value, icon }) {
-  return <div className="stat-card"><span className="stat-icon">{icon}</span><div><small>{label}</small><strong>{value}</strong></div></div>;
+  return (
+    <div className="stat-card">
+      <span className="stat-icon">{icon}</span>
+      <div>
+        <small>{label}</small>
+        <strong>{value}</strong>
+      </div>
+    </div>
+  );
+}
+
+function initials(name = "") {
+  return (
+    name
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase() || "CG"
+  );
+}
+
+function formatDistance(meters) {
+  return meters < 1_000
+    ? `${Math.round(meters)} m`
+    : `${(meters / 1_000).toFixed(1)} km`;
+}
+
+function formatRarity(rarity) {
+  return (
+    {
+      common: "Común",
+      uncommon: "Poco común",
+      rare: "Raro",
+      epic: "Épico",
+      legendary: "Legendario",
+    }[rarity] || rarity
+  );
+}
+
+function markerClass(ticker) {
+  return (
+    {
+      BTC: "bitcoin",
+      ETH: "ethereum",
+      BNB: "bnb",
+      SOL: "solana",
+    }[ticker] || "bitcoin"
+  );
 }
 
 export default App;

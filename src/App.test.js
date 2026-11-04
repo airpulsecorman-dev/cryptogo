@@ -1,128 +1,179 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from './App';
+import { api } from './api';
 
-test('renders the Crypto Hunt map demonstration', () => {
-  render(<App />);
-
-  expect(screen.getByRole('heading', { name: /sal a explorar/i })).toBeInTheDocument();
-  expect(screen.getByText(/ubicaciones ficticias/i)).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /recoger btc/i })).toBeInTheDocument();
+jest.mock('./MapView', () => function TestMapView({ discoveries, onSelect }) {
+  return (
+    <div aria-label="Mapa de Crypto Go">
+      {discoveries.map((discovery) => (
+        <button key={discovery.id} onClick={() => onSelect(discovery.id)}>
+          Seleccionar {discovery.name}
+        </button>
+      ))}
+    </div>
+  );
 });
 
-test('collecting a discovery updates points and advances to the next one', () => {
-  render(<App />);
+jest.mock('./api', () => ({
+  api: {
+    profile: jest.fn(),
+    authenticateTelegram: jest.fn(),
+    authenticateDevelopment: jest.fn(),
+    nearby: jest.fn(),
+    zones: jest.fn(),
+    collect: jest.fn(),
+    inventory: jest.fn(),
+    missions: jest.fn(),
+    leaderboard: jest.fn(),
+  },
+  developmentAuthEnabled: false,
+}));
 
-  fireEvent.click(screen.getByRole('button', { name: /recoger btc/i }));
+const player = {
+  id: 'player-1',
+  telegram_id: 123,
+  first_name: 'Ada Lovelace',
+  username: 'ada',
+  points: 0,
+  total_xp: 0,
+  level: 1,
+  xp_into_level: 0,
+  xp_for_next_level: 500,
+  collected_count: 0,
+  registered_at: '2026-01-01T00:00:00Z',
+};
 
-  expect(screen.getByRole('status')).toHaveTextContent(/BTC añadido a tu colección · \+10 puntos/i);
-  expect(screen.getByRole('button', { name: /recoger eth/i })).toBeInTheDocument();
-  expect(screen.getByText('1.290')).toBeInTheDocument();
+const collectible = {
+  id: 'spawn-1',
+  ticker: 'BTC',
+  name: 'Bitcoin',
+  symbol: '₿',
+  rarity: 'common',
+  latitude: 0,
+  longitude: 0,
+  distance_meters: 10,
+  collection_radius_meters: 35,
+  expires_at: '2026-12-01T00:00:00Z',
+};
+
+function openSection(label) {
+  fireEvent.click(screen.getAllByRole('button', { name: label })[0]);
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  api.profile.mockResolvedValue(player);
+  api.nearby.mockResolvedValue({ items: [], message: null });
+  api.zones.mockResolvedValue({ items: [] });
+  api.inventory.mockResolvedValue({ items: [], history: [], total_collected: 0 });
+  api.missions.mockResolvedValue({ items: [] });
+  api.leaderboard.mockResolvedValue({ items: [] });
 });
 
-test('navigation opens the inventory section', () => {
+test('requires a valid backend session and authenticates with Telegram initData', async () => {
+  api.profile.mockRejectedValueOnce({ status: 401 });
+  api.authenticateTelegram.mockResolvedValue(player);
+  Object.defineProperty(window, 'Telegram', {
+    configurable: true,
+    value: { WebApp: { initData: 'signed-init-data', ready: jest.fn() } },
+  });
+
   render(<App />);
 
-  fireEvent.click(screen.getAllByRole('button', { name: 'Inventario' })[0]);
-
-  expect(screen.getByRole('heading', { name: /inventario/i })).toBeInTheDocument();
-  expect(screen.getByText('× 7')).toBeInTheDocument();
+  await waitFor(() => expect(api.authenticateTelegram).toHaveBeenCalledWith('signed-init-data'));
+  expect(await screen.findByRole('heading', { name: /sal a explorar/i })).toBeInTheDocument();
 });
 
-test('map zoom controls change the zoom and stop at their limits', () => {
+test('a player without a Telegram session sees an authentication state, not demo data', async () => {
+  api.profile.mockRejectedValue({ status: 401 });
+  delete window.Telegram;
+
   render(<App />);
-  const zoomIn = screen.getByRole('button', { name: 'Acercar mapa' });
-  const zoomOut = screen.getByRole('button', { name: 'Alejar mapa' });
 
-  fireEvent.click(zoomIn);
-  expect(screen.getByText('Zoom 110%')).toBeInTheDocument();
-
-  for (let index = 0; index < 4; index += 1) fireEvent.click(zoomIn);
-  expect(screen.getByText('Zoom 150%')).toBeInTheDocument();
-  expect(zoomIn).toBeDisabled();
-
-  for (let index = 0; index < 7; index += 1) fireEvent.click(zoomOut);
-  expect(screen.getByText('Zoom 80%')).toBeInTheDocument();
-  expect(zoomOut).toBeDisabled();
+  expect(await screen.findByRole('heading', { name: /crypto go/i })).toBeInTheDocument();
+  expect(screen.getByText(/abre crypto go desde telegram/i)).toBeInTheDocument();
+  expect(screen.queryByText(/btc añadido/i)).not.toBeInTheDocument();
 });
 
-test('the logo returns to the map from another section', () => {
-  render(<App />);
-  fireEvent.click(screen.getAllByRole('button', { name: 'Inventario' })[0]);
-  fireEvent.click(screen.getByRole('link', { name: 'Crypto Hunt, inicio' }));
-
-  expect(screen.getByRole('heading', { name: /sal a explorar/i })).toBeInTheDocument();
-});
-
-test('the mobile navigation opens each section', () => {
-  render(<App />);
-  const mobileNavigation = within(screen.getByRole('navigation', { name: 'Navegación móvil' }));
-
-  for (const [label, heading] of [
-    ['Inventario', /inventario/i],
-    ['Misiones', /misiones/i],
-    ['Ranking', /ranking/i],
-    ['Perfil', /perfil/i],
-  ]) {
-    fireEvent.click(mobileNavigation.getByRole('button', { name: label }));
-    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument();
-  }
-});
-
-test('the location button requests permission and reports the result', () => {
-  const getCurrentPosition = jest.fn((success) => success({ coords: { latitude: -0.2, longitude: -78.5 } }));
+test('GPS lookup loads actual nearby items and collecting uses the server reward', async () => {
+  api.nearby.mockResolvedValueOnce({ items: [collectible], message: null });
+  api.collect.mockResolvedValue({
+    success: true,
+    collection_id: 'collection-1',
+    collectible: { ticker: 'BTC', name: 'Bitcoin', rarity: 'common' },
+    rewards: { points: 10, xp: 10 },
+    player: { ...player, points: 10, total_xp: 10, xp_into_level: 10, collected_count: 1 },
+    message: 'Bitcoin añadido a tu colección.',
+  });
+  const getCurrentPosition = jest.fn((success) => success({
+    coords: { latitude: 0, longitude: 0, accuracy: 5 },
+  }));
   Object.defineProperty(navigator, 'geolocation', {
     configurable: true,
     value: { getCurrentPosition },
   });
-
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: /mi ubicación/i }));
+  await screen.findByRole('heading', { name: /sal a explorar/i });
 
+  fireEvent.click(screen.getByRole('button', { name: /mi ubicación/i }));
   expect(getCurrentPosition).toHaveBeenCalledWith(
     expect.any(Function),
     expect.any(Function),
-    expect.objectContaining({ enableHighAccuracy: false })
+    expect.objectContaining({ enableHighAccuracy: true, maximumAge: 0 })
   );
-  expect(screen.getByRole('status')).toHaveTextContent(/ubicación detectada.*datos de demostración/i);
+  fireEvent.click(await screen.findByRole('button', { name: /recoger btc/i }));
+
+  await waitFor(() => expect(api.collect).toHaveBeenCalledWith(
+    expect.objectContaining({ latitude: 0, longitude: 0, accuracy: 5 }),
+    'spawn-1'
+  ));
+  expect(await screen.findByRole('status')).toHaveTextContent(/\+10 puntos · \+10 xp/i);
+  expect(screen.getByLabelText(/10 puntos/i)).toBeInTheDocument();
 });
 
-test('selecting a map marker changes the selected treasure', () => {
+test('inventory and mission screens load real empty states', async () => {
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: /seleccionar ethereum/i }));
+  await screen.findByRole('heading', { name: /sal a explorar/i });
 
-  expect(screen.getByRole('button', { name: /recoger eth/i })).toBeInTheDocument();
+  openSection('Inventario');
+  expect(await screen.findByText(/todavía no has recogido objetos/i)).toBeInTheDocument();
+  expect(api.inventory).toHaveBeenCalled();
+
+  openSection('Misiones');
+  expect(await screen.findByText(/no hay misiones habilitadas/i)).toBeInTheDocument();
+  expect(api.missions).toHaveBeenCalled();
 });
 
-test('the profile avatar and desktop navigation open their sections', () => {
+test('the profile reads persisted player values from the API', async () => {
   render(<App />);
-  fireEvent.click(screen.getByRole('button', { name: 'Abrir perfil' }));
-  expect(screen.getByRole('heading', { name: /perfil/i })).toBeInTheDocument();
+  await screen.findByRole('heading', { name: /sal a explorar/i });
+  openSection('Perfil');
 
-  fireEvent.click(screen.getAllByRole('button', { name: 'Ranking' })[0]);
-  expect(screen.getByRole('heading', { name: /ranking/i })).toBeInTheDocument();
+  expect(await screen.findByRole('heading', { name: /ada lovelace/i })).toBeInTheDocument();
+  expect(screen.getByText('500 / 500 XP')).toBeInTheDocument();
+  expect(api.profile).toHaveBeenCalledTimes(2);
 });
 
-test('collecting every available treasure displays the empty state', () => {
-  render(<App />);
-
-  for (const ticker of ['BTC', 'ETH', 'SOL']) {
-    fireEvent.click(screen.getByRole('button', { name: new RegExp(`recoger ${ticker}`, 'i') }));
-  }
-
-  expect(screen.getByText(/los encontraste todos/i)).toBeInTheDocument();
-  expect(screen.getByText(/no quedan tesoros en esta zona/i)).toBeInTheDocument();
-  expect(screen.getByText('1.415')).toBeInTheDocument();
-});
-
-test('the location button reports when permission is denied', () => {
-  const getCurrentPosition = jest.fn((success, error) => error({ code: 1 }));
+test('location permission errors are announced to the player', async () => {
+  const getCurrentPosition = jest.fn((_success, error) => error({ code: 1 }));
   Object.defineProperty(navigator, 'geolocation', {
     configurable: true,
     value: { getCurrentPosition },
   });
-
   render(<App />);
+  await screen.findByRole('heading', { name: /sal a explorar/i });
   fireEvent.click(screen.getByRole('button', { name: /mi ubicación/i }));
 
-  expect(screen.getByRole('status')).toHaveTextContent(/permiso de ubicación denegado/i);
+  expect(await screen.findByRole('status')).toHaveTextContent(/permiso de ubicación denegado/i);
+});
+
+test('mobile navigation opens the real ranking section', async () => {
+  api.leaderboard.mockResolvedValue({ items: [] });
+  render(<App />);
+  await screen.findByRole('heading', { name: /sal a explorar/i });
+  const mobileNavigation = within(screen.getByRole('navigation', { name: 'Navegación móvil' }));
+  fireEvent.click(mobileNavigation.getByRole('button', { name: 'Ranking' }));
+
+  expect(await screen.findByRole('heading', { name: /ranking/i })).toBeInTheDocument();
+  expect(screen.getByText(/aún no hay jugadores/i)).toBeInTheDocument();
 });
