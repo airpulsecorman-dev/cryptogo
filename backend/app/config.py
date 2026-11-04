@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     telegram_bot_token: str | None = None
     telegram_auth_max_age_seconds: int = 43_200
+    wallet_auth_max_age_seconds: int = 600
+    toncenter_api_url: str = "https://toncenter.com/api/v2"
+    toncenter_testnet_api_url: str = "https://testnet.toncenter.com/api/v2"
+    toncenter_api_key: str | None = None
     session_ttl_seconds: int = 86_400
     session_cookie_name: str = "cryptogo_session"
     session_cookie_secure: bool = False
@@ -43,7 +47,8 @@ class Settings(BaseSettings):
             ):
                 raise ValueError("SameSite=None requires Secure cookies")
             if not self.telegram_bot_token:
-                raise ValueError("TELEGRAM_BOT_TOKEN is required in production")
+                raise ValueError(
+                    "TELEGRAM_BOT_TOKEN is required in production")
             origins = self.allowed_origins
             parsed_origins = [urlsplit(origin) for origin in origins]
             if not parsed_origins or any(
@@ -64,7 +69,8 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [
-            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",")
+            if origin.strip()
         ]
 
     @property

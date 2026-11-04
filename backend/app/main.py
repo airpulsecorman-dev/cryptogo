@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 import logging
-
 from .config import Settings, get_settings
 from .database import create_session_factory
 from .routers import auth, game
@@ -58,7 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             origin = request.headers.get("origin")
             if origin and origin not in app_settings.allowed_origins:
-                return JSONResponse(status_code=403, content={"detail": "Origen no permitido."})
+                return JSONResponse(
+                    status_code=403, content={"detail": "Origen no permitido."}
+                )
         return await call_next(request)
 
     @app.get("/health/live", include_in_schema=False)

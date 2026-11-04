@@ -8,6 +8,36 @@ class TelegramAuthRequest(BaseModel):
     init_data: str = Field(min_length=1, max_length=8_192)
 
 
+class EvmChallengeRequest(BaseModel):
+    address: str = Field(min_length=42, max_length=42)
+    chain_id: int = Field(gt=0, le=18_446_744_073_709_551_615)
+
+
+class EvmVerifyRequest(EvmChallengeRequest):
+    nonce: str = Field(min_length=32, max_length=64, pattern=r"^[a-f0-9]+$")
+    signature: str = Field(min_length=130, max_length=132, pattern=r"^0x[a-fA-F0-9]+$")
+
+
+class TonProofDomain(BaseModel):
+    lengthBytes: int = Field(ge=1, le=128)
+    value: str = Field(min_length=1, max_length=128)
+
+
+class TonProof(BaseModel):
+    timestamp: int = Field(gt=0)
+    domain: TonProofDomain
+    signature: str = Field(min_length=80, max_length=128)
+    payload: str = Field(min_length=1, max_length=128)
+    state_init: str = Field(min_length=1, max_length=16_384)
+
+
+class TonWalletAuthRequest(BaseModel):
+    address: str = Field(min_length=1, max_length=128)
+    network: str = Field(pattern=r"^-?\d{1,10}$")
+    public_key: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
+    proof: TonProof
+
+
 class DevelopmentAuthRequest(BaseModel):
     telegram_id: int = Field(gt=0)
     first_name: str = Field(min_length=1, max_length=128)
@@ -16,7 +46,7 @@ class DevelopmentAuthRequest(BaseModel):
 
 class PlayerResponse(BaseModel):
     id: UUID
-    telegram_id: int
+    telegram_id: int | None
     first_name: str
     username: str | None
     points: int
