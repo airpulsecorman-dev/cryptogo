@@ -1,15 +1,16 @@
 {
   "files": {
     "main.css": "/cryptogo/static/css/main.18196d68.css",
-    "main.js": "/cryptogo/static/js/main.60d6ebfb.js",
+    "main.js": "/cryptogo/static/js/main.14397834.js",
     "static/js/453.fc61386a.chunk.js": "/cryptogo/static/js/453.fc61386a.chunk.js",
+    "static/media/maplibre-gl-worker.mjs": "/cryptogo/static/media/maplibre-gl-worker.6e7100e39cd454c13ce8.mjs",
     "index.html": "/cryptogo/index.html",
     "main.18196d68.css.map": "/cryptogo/static/css/main.18196d68.css.map",
-    "main.60d6ebfb.js.map": "/cryptogo/static/js/main.60d6ebfb.js.map",
+    "main.14397834.js.map": "/cryptogo/static/js/main.14397834.js.map",
     "453.fc61386a.chunk.js.map": "/cryptogo/static/js/453.fc61386a.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.18196d68.css",
-    "static/js/main.60d6ebfb.js"
+    "static/js/main.14397834.js"
   ]
 }
