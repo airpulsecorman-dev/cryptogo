@@ -995,7 +995,9 @@ Configura `public/tonconnect-manifest.json` con la URL HTTPS pública del
 frontend antes del despliegue. El backend usa TON Center para validar TON;
 `TONCENTER_API_URL`, `TONCENTER_TESTNET_API_URL` y `TONCENTER_API_KEY` permiten
 configurar los proveedores para cada red. La verificación TON requiere acceso
-al proveedor configurado; no se puede completar si está indisponible.
+al proveedor configurado; no se puede completar si está indisponible. Antes de
+desplegar el backend, aplica las migraciones desde `backend/` con
+`python -m alembic upgrade head`.
 
 ## 13.4 Sesiones
 
@@ -1633,7 +1635,7 @@ políticas y condiciones vigentes.
 
   Caídas del servidor                 Monitoreo, backups y recuperación
 
-  Dependencia de Telegram             Separación entre lógica de juego y
+Dependencia de Telegram             Separación entre lógica de juego y
                                       capa de presentación
   -----------------------------------------------------------------------
 
