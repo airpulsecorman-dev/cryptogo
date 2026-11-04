@@ -1,4 +1,4 @@
-# CRYPTO Go
+# CRYPTO GO
 
 > **Go. Collect. Level Up.**\
 > Explora el mundo real, encuentra criptomonedas virtuales y conviértete

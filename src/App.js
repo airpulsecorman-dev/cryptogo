@@ -16,6 +16,7 @@ const sections = [
 ];
 
 const initialInventory = { BTC: 7, ETH: 5, BNB: 3, SOL: 3 };
+const LOCATION_PERMISSION_DENIED = 1;
 
 function App() {
   const [activeSection, setActiveSection] = useState('map');
@@ -26,6 +27,7 @@ function App() {
   const [collectedCount, setCollectedCount] = useState(18);
   const [locationMessage, setLocationMessage] = useState('');
   const [notice, setNotice] = useState('');
+  const [mapZoom, setMapZoom] = useState(1);
 
   const selectedDiscovery = discoveries.find(({ id }) => id === selectedId);
 
@@ -39,7 +41,7 @@ function App() {
     navigator.geolocation.getCurrentPosition(
       () => setLocationMessage('Ubicación detectada. El mapa aún usa datos de demostración.'),
       (error) => {
-        const message = error.code === error.PERMISSION_DENIED
+        const message = error.code === LOCATION_PERMISSION_DENIED
           ? 'Permiso de ubicación denegado. Puedes explorar la demostración.'
           : 'No se pudo obtener tu ubicación. Inténtalo de nuevo cuando estés listo.';
         setLocationMessage(message);
@@ -67,7 +69,15 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="#inicio" aria-label="Crypto Hunt, inicio" onClick={(event) => event.preventDefault()}>
+        <a
+          className="brand"
+          href="#inicio"
+          aria-label="Crypto Hunt, inicio"
+          onClick={(event) => {
+            event.preventDefault();
+            setActiveSection('map');
+          }}
+        >
           <span className="brand-mark">C<span>H</span></span>
           <span className="brand-name">CRYPTO<span>HUNT</span></span>
         </a>
@@ -116,9 +126,12 @@ function App() {
               selectedId={selectedId}
               selectedDiscovery={selectedDiscovery}
               locationMessage={locationMessage}
+              mapZoom={mapZoom}
               onSelect={setSelectedId}
               onLocate={locatePlayer}
               onCollect={collectDiscovery}
+              onZoomIn={() => setMapZoom((current) => Math.min(1.5, Number((current + 0.1).toFixed(1))))}
+              onZoomOut={() => setMapZoom((current) => Math.max(0.8, Number((current - 0.1).toFixed(1))))}
             />
           )}
           {activeSection === 'inventory' && <InventorySection inventory={inventory} collectedCount={collectedCount} points={points} />}
@@ -146,7 +159,7 @@ function App() {
   );
 }
 
-function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessage, onSelect, onLocate, onCollect }) {
+function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessage, mapZoom, onSelect, onLocate, onCollect, onZoomIn, onZoomOut }) {
   return (
     <>
       <div className="page-heading map-heading">
@@ -162,6 +175,7 @@ function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessag
       <div className="map-layout">
         <section className="map-panel" aria-label="Mapa de demostración">
           <div className="map-canvas">
+            <div className="map-scene" style={{ transform: `scale(${mapZoom})` }}>
             <div className="map-water" />
             <div className="map-park park-one"><span>PARQUE</span><i>✳</i></div>
             <div className="map-park park-two"><i>✳</i></div>
@@ -184,10 +198,12 @@ function MapSection({ discoveries, selectedId, selectedDiscovery, locationMessag
                 {discovery.symbol}
               </button>
             ))}
-            <div className="map-control-stack">
-              <button aria-label="Acercar mapa" title="Acercar">+</button>
-              <button aria-label="Alejar mapa" title="Alejar">−</button>
             </div>
+            <div className="map-control-stack">
+              <button aria-label="Acercar mapa" title="Acercar mapa" onClick={onZoomIn} disabled={mapZoom >= 1.5}>+</button>
+              <button aria-label="Alejar mapa" title="Alejar mapa" onClick={onZoomOut} disabled={mapZoom <= 0.8}>−</button>
+            </div>
+            <div className="map-zoom-level" aria-live="polite">Zoom {Math.round(mapZoom * 100)}%</div>
             <div className="map-attribution">Mapa ilustrativo · Ubicaciones ficticias</div>
           </div>
           <div className="map-footer">
