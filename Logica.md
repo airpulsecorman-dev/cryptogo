@@ -41,3 +41,31 @@ Instancias de coleccionables
 Objetos disponibles, activos y no expirados
 
 Jugador encuentra objetos en el mapa
+
+## Qué debes hacer ahora
+
+Si estás utilizando Docker Compose (como hasta ahora), necesitas reconstruir la imagen de la API porque contiene el código Python del backend.
+
+``` docker
+
+    1. Reconstruir y reiniciar la API:
+
+    docker compose up -d --build api
+
+    2. Comprobar que está saludable:
+
+    docker compose ps
+
+    3. Revisar los registros:
+
+    docker compose logs --tail=80 api
+
+    4. Comprobar los endpoints:
+
+    curl -i <http://localhost:8000/api/v1/health/ready>
+
+```
+
+¿Y el Spawn Worker?
+Como también utiliza la imagen Dockerfile.api, si Copilot modificó backend/app/geo.py o algún módulo que utiliza el worker, conviene reconstruirlo también:
+docker compose up -d --build spawn-worker
