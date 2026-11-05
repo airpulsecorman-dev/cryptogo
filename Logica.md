@@ -68,4 +68,5 @@ Si estás utilizando Docker Compose (como hasta ahora), necesitas reconstruir la
 
 ¿Y el Spawn Worker?
 Como también utiliza la imagen Dockerfile.api, si Copilot modificó backend/app/geo.py o algún módulo que utiliza el worker, conviene reconstruirlo también:
+
 docker compose up -d --build spawn-worker
