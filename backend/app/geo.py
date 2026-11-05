@@ -129,25 +129,48 @@ def point_is_in_enabled_zone(
     longitude: float,
     zone_id: Any | None = None,
 ) -> bool:
+    return _point_in_zone(db, latitude, longitude, zone_id, require_enabled=True)
+
+
+def point_is_in_zone(
+    db: Session,
+    latitude: float,
+    longitude: float,
+    zone_id: Any | None = None,
+) -> bool:
+    return _point_in_zone(db, latitude, longitude, zone_id, require_enabled=False)
+
+
+def _point_in_zone(
+    db: Session,
+    latitude: float,
+    longitude: float,
+    zone_id: Any | None,
+    *,
+    require_enabled: bool,
+) -> bool:
     if db.bind.dialect.name == "postgresql":
         parameters: dict[str, Any] = {"latitude": latitude, "longitude": longitude}
-        zone_filter = ""
+        conditions = ["enabled"] if require_enabled else []
         if zone_id is not None:
-            zone_filter = "AND id = :zone_id"
+            conditions.append("id = :zone_id")
             parameters["zone_id"] = zone_id
+        where_clause = f"{' AND '.join(conditions)} AND " if conditions else ""
         return bool(
             db.execute(
                 text(
                     "SELECT EXISTS ("
-                    "SELECT 1 FROM zones WHERE enabled "
-                    f"{zone_filter} "
-                    "AND ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(boundary_geojson), 4326), "
+                    "SELECT 1 FROM zones WHERE "
+                    f"{where_clause}"
+                    "ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(boundary_geojson), 4326), "
                     "ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)))"
                 ),
                 parameters,
             ).scalar_one()
         )
-    zones = db.query(Zone).filter(Zone.enabled.is_(True))
+    zones = db.query(Zone)
+    if require_enabled:
+        zones = zones.filter(Zone.enabled.is_(True))
     if zone_id is not None:
         zones = zones.filter(Zone.id == zone_id)
     return any(_sqlite_covers(zone, latitude, longitude) for zone in zones)
@@ -172,7 +195,6 @@ def nearby_rows(
                 ") AS distance_meters "
                 "FROM spawn_instances s "
                 "JOIN collectibles c ON c.id = s.collectible_id AND c.enabled "
-                "JOIN zones z ON z.id = s.zone_id AND z.enabled "
                 "WHERE s.state = 'available' AND s.expires_at > :now "
                 "AND ST_DWithin("
                 "ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4326)::geography, "
@@ -182,10 +204,6 @@ def nearby_rows(
                 "ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4326)::geography, "
                 "ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography"
                 ") <= s.visibility_radius_meters "
-                "AND ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(z.boundary_geojson), 4326), "
-                "ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4326)) "
-                "AND ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(z.boundary_geojson), 4326), "
-                "ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)) "
                 "ORDER BY distance_meters, s.id LIMIT :limit"
             ),
             {
@@ -201,27 +219,21 @@ def nearby_rows(
     from .models import Collectible, SpawnInstance
 
     spawns = (
-        db.query(SpawnInstance, Collectible, Zone)
+        db.query(SpawnInstance, Collectible)
         .join(Collectible, Collectible.id == SpawnInstance.collectible_id)
-        .join(Zone, Zone.id == SpawnInstance.zone_id)
         .filter(
             SpawnInstance.state == "available",
             SpawnInstance.expires_at > now,
             Collectible.enabled.is_(True),
-            Zone.enabled.is_(True),
         )
         .all()
     )
     results = []
-    for spawn, collectible, zone in spawns:
+    for spawn, collectible in spawns:
         distance = haversine_meters(
             latitude, longitude, spawn.latitude, spawn.longitude
         )
-        if (
-            distance <= min(radius_meters, spawn.visibility_radius_meters)
-            and _sqlite_covers(zone, spawn.latitude, spawn.longitude)
-            and _sqlite_covers(zone, latitude, longitude)
-        ):
+        if distance <= min(radius_meters, spawn.visibility_radius_meters):
             results.append(
                 {
                     "id": spawn.id,

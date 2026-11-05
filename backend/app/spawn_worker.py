@@ -1,14 +1,13 @@
 import time
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 
 from .config import Settings
-from pathlib import Path
-
 from .database import create_session_factory
 from .geographic_safety import classify_geographic_safety
-from .models import SpawnInstance, SpawnPoint, Zone, utcnow
+from .models import SpawnInstance, SpawnPoint, utcnow
 
 
 def generate_dynamic_spawns(session_factory) -> int:
@@ -21,8 +20,7 @@ def generate_dynamic_spawns(session_factory) -> int:
         ).update({SpawnInstance.state: "expired"}, synchronize_session=False)
         points = db.scalars(
             select(SpawnPoint)
-            .join(Zone, Zone.id == SpawnPoint.zone_id)
-            .where(SpawnPoint.enabled.is_(True), SpawnPoint.dynamic.is_(True), Zone.enabled.is_(True))
+            .where(SpawnPoint.enabled.is_(True), SpawnPoint.dynamic.is_(True))
             .with_for_update(skip_locked=True)
         ).all()
         for point in points:

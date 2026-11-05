@@ -14,7 +14,7 @@ from .geographic_safety import (
     classify_geographic_safety,
     persist_geographic_evidence,
 )
-from .geo import point_is_in_enabled_zone
+from .geo import point_is_in_zone
 from .models import (
     Collectible,
     GeographicSecurityEvidence,
@@ -174,12 +174,12 @@ def main():
         collectible = db.scalar(
             select(Collectible).where(Collectible.ticker == args.ticker.upper())
         )
-        if zone is None or not zone.enabled:
-            parser.error("zone-id must identify an enabled, reviewed zone.")
+        if zone is None:
+            parser.error("zone-id must identify an existing zone.")
         if collectible is None or not collectible.enabled:
             parser.error("ticker must identify an enabled catalog collectible.")
-        if not point_is_in_enabled_zone(db, args.latitude, args.longitude, zone.id):
-            parser.error("The spawn coordinates must lie inside the enabled zone.")
+        if not point_is_in_zone(db, args.latitude, args.longitude, zone.id):
+            parser.error("The spawn coordinates must lie inside the zone.")
         decision = classify_geographic_safety(
             db, args.latitude, args.longitude, args.collection_radius_meters
         )

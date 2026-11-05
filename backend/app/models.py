@@ -31,7 +31,7 @@ class Base(DeclarativeBase):
 class GeographicGeometry(UserDefinedType):
     cache_ok = True
 
-    def get_col_spec(self, **_kw):
+    def get_col_spec(self, **_kw) -> str:
         return "geometry"
 
 

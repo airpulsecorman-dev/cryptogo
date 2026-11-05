@@ -11,7 +11,10 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..geographic_safety import classify_geographic_safety, classify_geographic_safety_batch
+from ..geographic_safety import (
+    classify_geographic_safety,
+    classify_geographic_safety_batch,
+)
 from ..geo import haversine_meters, nearby_rows, point_is_in_enabled_zone
 from ..models import (
     AntiCheatEvent,
@@ -104,11 +107,6 @@ def get_nearby_collectibles(
     player=Depends(get_current_player),
     db: Session = Depends(get_db),
 ):
-    if not point_is_in_enabled_zone(db, latitude, longitude):
-        return {
-            "items": [],
-            "message": "No hay una zona de juego habilitada en esta ubicación.",
-        }
     player_safety = classify_geographic_safety(db, latitude, longitude)
     if not player_safety.allows_query:
         return {
@@ -253,14 +251,6 @@ def collect(
         spawn.state = "expired"
         db.commit()
         raise HTTPException(status.HTTP_410_GONE, "Este objeto expiró.")
-
-    if not point_is_in_enabled_zone(
-        db, spawn.latitude, spawn.longitude, spawn.zone_id
-    ) or not point_is_in_enabled_zone(db, body.latitude, body.longitude, spawn.zone_id):
-        _log_anomaly(db, user.id, spawn.id, "outside_enabled_zone")
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "La ubicación está fuera de una zona habilitada."
-        )
 
     safety_decisions = classify_geographic_safety_batch(
         db,

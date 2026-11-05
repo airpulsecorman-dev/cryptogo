@@ -202,7 +202,7 @@ def test_collection_is_idempotent_and_different_request_is_rejected(
         assert db.query(IdempotencyRecord).count() == 1
 
 
-def test_nearby_requires_a_real_enabled_zone_and_location(client):
+def test_nearby_requires_verified_geography_and_location(client):
     create_player(client)
     spawn_id = create_spawn(client)
     response = client.get("/api/v1/collectibles/nearby?latitude=0&longitude=0")
@@ -391,12 +391,12 @@ def test_missions_are_an_explicit_empty_state_not_fabricated_progress(client):
     assert result.json()["items"] == []
 
 
-def test_dynamic_spawns_are_generated_at_configured_points_and_expire(client):
+def test_dynamic_spawns_are_generated_without_enabling_the_zone_and_expire(client):
     factory = client.app.state.session_factory
     with factory() as db:
         zone = Zone(
             name="Approved zone",
-            enabled=True,
+            enabled=False,
             boundary_geojson='{"type":"Polygon","coordinates":[[[-1,-1],[1,-1],[1,1],[-1,1],[-1,-1]]]}',
         )
         collectible = Collectible(

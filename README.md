@@ -334,9 +334,9 @@ No se habilitarán ubicaciones en propiedades privadas, carreteras
 peligrosas, vías rápidas, instalaciones sensibles, zonas restringidas o
 espacios sin acceso público autorizado.
 
-`zones.enabled` es únicamente un control operativo heredado: no constituye
-evidencia de que una ubicación sea segura. La autorización para jugar la
-determina el backend a partir de evidencia geográfica independiente y vigente.
+`zones.enabled` se conserva para compatibilidad y presentación heredada; ni
+habilita ni bloquea la autorización para jugar. La autorización la determina el
+backend a partir de evidencia geográfica independiente y vigente.
 El clasificador resuelve conflictos con la precedencia
 `restricted > unknown > caution > safe`. Solo evidencia verificada, con
 procedencia y licencia, geometría válida, acceso público o autorizado y
@@ -1355,16 +1355,17 @@ subir `.env` al repositorio.
    `http://localhost:8000/api/v1`; el acceso de desarrollo aparece solo si
    `REACT_APP_ENABLE_DEV_AUTH=true` y el API tiene `APP_ENV=development` más
    `DEV_AUTH_ENABLED=true`.
-4. Para probar recolección, primero registra una zona GeoJSON segura,
+4. Para probar recolección, registra una zona GeoJSON,
    verificada y de acceso público desde `backend/`. Crea la zona con
    `python -m app.cli create-zone`, registra su evidencia revisada con
    `python -m app.cli create-security-evidence` (incluyendo geometría,
    procedencia, licencia, confianza, vigencia y actor), y después crea un punto
    con `python -m app.cli create-spawn`. Proporciona únicamente geometrías y
-   fuentes cuya revisión tengas autorización para afirmar. La opción `--enable`
-   de zona no sustituye la evidencia. Los puntos `--dynamic` se generan por el
-   worker solo si el clasificador vuelve a permitirlos; los fijos también se
-   rechazan si no son verdes. No se incluyen ubicaciones de ejemplo.
+   fuentes cuya revisión tengas autorización para afirmar. `Zone.enabled` no
+   necesita activarse y nunca sustituye la evidencia. Los puntos `--dynamic`
+   se generan por el worker solo si el clasificador vuelve a permitirlos; los
+   fijos también se rechazan si no son verdes. No se incluyen ubicaciones de
+   ejemplo.
 5. Si se usa Telegram, configura `TELEGRAM_BOT_TOKEN` fuera del repositorio y
    registra el dominio HTTPS de la Mini App con el bot.
 

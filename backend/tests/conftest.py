@@ -69,12 +69,19 @@ def collect_request(spawn_id, *, latitude=0.0, longitude=0.0, accuracy=5, timest
     }
 
 
-def create_spawn(client: TestClient, *, expires_at=None, latitude=0.0, longitude=0.0) -> str:
+def create_spawn(
+    client: TestClient,
+    *,
+    expires_at=None,
+    latitude=0.0,
+    longitude=0.0,
+    zone_enabled=True,
+) -> str:
     factory = client.app.state.session_factory
     with factory() as db:
         zone = Zone(
             name="Test zone",
-            enabled=True,
+            enabled=zone_enabled,
             boundary_geojson=json.dumps(
                 {
                     "type": "Polygon",

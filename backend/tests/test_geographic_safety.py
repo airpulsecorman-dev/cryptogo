@@ -231,6 +231,22 @@ def test_nearby_query_omits_a_restricted_spawn_for_a_safe_player(client):
     assert response.json()["items"] == []
 
 
+def test_verified_green_evidence_allows_play_without_enabling_legacy_zone(client):
+    create_player(client)
+    spawn_id = create_spawn(client, zone_enabled=False)
+
+    nearby = client.get("/api/v1/collectibles/nearby?latitude=0&longitude=0")
+    assert nearby.status_code == 200
+    assert [item["id"] for item in nearby.json()["items"]] == [spawn_id]
+
+    collected = client.post(
+        "/api/v1/collectibles/collect",
+        headers={"Idempotency-Key": "safe-disabled-zone-collection"},
+        json=collect_request(spawn_id),
+    )
+    assert collected.status_code == 200
+
+
 def test_collection_is_rejected_if_safety_classification_changes(client):
     create_player(client)
     spawn_id = create_spawn(client)
