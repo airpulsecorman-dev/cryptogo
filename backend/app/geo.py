@@ -159,6 +159,7 @@ def nearby_rows(
     longitude: float,
     radius_meters: int,
     now,
+    limit: int = 100,
 ) -> list[dict]:
     if db.bind.dialect.name == "postgresql":
         rows = db.execute(
@@ -185,13 +186,14 @@ def nearby_rows(
                 "ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4326)) "
                 "AND ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(z.boundary_geojson), 4326), "
                 "ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)) "
-                "ORDER BY distance_meters, s.id"
+                "ORDER BY distance_meters, s.id LIMIT :limit"
             ),
             {
                 "latitude": latitude,
                 "longitude": longitude,
                 "radius_meters": radius_meters,
                 "now": now,
+                "limit": limit,
             },
         )
         return [dict(row._mapping) for row in rows]
@@ -234,4 +236,4 @@ def nearby_rows(
                     "distance_meters": distance,
                 }
             )
-    return sorted(results, key=lambda row: row["distance_meters"])
+    return sorted(results, key=lambda row: row["distance_meters"])[:limit]

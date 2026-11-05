@@ -1,6 +1,7 @@
 import argparse
 import json
-from datetime import timedelta
+import math
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
@@ -8,8 +9,20 @@ from sqlalchemy import select, text
 
 from .config import Settings
 from .database import create_session_factory
+from .geographic_safety import (
+    _geometry_is_valid,
+    classify_geographic_safety,
+    persist_geographic_evidence,
+)
 from .geo import point_is_in_enabled_zone
-from .models import Collectible, SpawnInstance, SpawnPoint, Zone, utcnow
+from .models import (
+    Collectible,
+    GeographicSecurityEvidence,
+    SpawnInstance,
+    SpawnPoint,
+    Zone,
+    utcnow,
+)
 
 
 def main():
@@ -41,11 +54,77 @@ def main():
     set_zone_state.add_argument("--enabled", dest="enabled", action="store_true")
     set_zone_state.add_argument("--disabled", dest="enabled", action="store_false")
     set_zone_state.set_defaults(enabled=None)
+    create_evidence = commands.add_parser(
+        "create-security-evidence",
+        help="Record a manually reviewed, sourced geographic safety area.",
+    )
+    create_evidence.add_argument("--geometry-file", required=True, type=Path)
+    create_evidence.add_argument(
+        "--status",
+        required=True,
+        choices=("safe", "caution", "restricted", "unknown"),
+    )
+    create_evidence.add_argument("--place-type", required=True)
+    create_evidence.add_argument("--source-name", required=True)
+    create_evidence.add_argument("--source-identifier", required=True)
+    create_evidence.add_argument("--license-terms", required=True)
+    create_evidence.add_argument(
+        "--access-status",
+        required=True,
+        choices=("unknown", "public", "authorized", "restricted"),
+    )
+    create_evidence.add_argument("--confidence", required=True, type=float)
+    create_evidence.add_argument("--expires-at", required=True)
+    create_evidence.add_argument("--reason", required=True)
+    create_evidence.add_argument("--rule-applied", required=True)
+    create_evidence.add_argument("--actor", required=True)
     args = parser.parse_args()
 
     settings = Settings(_env_file=Path(__file__).resolve().parents[2] / ".env")
     factory = create_session_factory(settings.connection_url)
     with factory() as db:
+        if args.command == "create-security-evidence":
+            geometry = json.loads(args.geometry_file.read_text(encoding="utf-8"))
+            if not _geometry_is_valid(geometry):
+                parser.error(
+                    "geometry-file must contain a valid Polygon or MultiPolygon."
+                )
+            try:
+                expires_at = datetime.fromisoformat(args.expires_at)
+            except ValueError:
+                parser.error("--expires-at must be an ISO-8601 datetime.")
+            if expires_at.tzinfo is None or expires_at <= utcnow():
+                parser.error("--expires-at must be a future ISO-8601 datetime with timezone.")
+            if not math.isfinite(args.confidence) or not 0 <= args.confidence <= 1:
+                parser.error("--confidence must be between 0 and 1.")
+            if args.status == "safe" and (
+                args.access_status not in {"public", "authorized"}
+                or args.confidence < 0.9
+            ):
+                parser.error(
+                    "Safe evidence requires public/authorized access and confidence >= 0.9."
+                )
+            evidence = GeographicSecurityEvidence(
+                geometry_geojson=json.dumps(geometry),
+                security_status=args.status,
+                place_type=args.place_type,
+                source_name=args.source_name,
+                source_identifier=args.source_identifier,
+                license_terms=args.license_terms,
+                access_status=args.access_status,
+                imported_at=utcnow(),
+                verified_at=utcnow(),
+                expires_at=expires_at,
+                confidence=args.confidence,
+                validation_status="verified",
+                rule_applied=args.rule_applied,
+                reason=args.reason,
+            )
+            persist_geographic_evidence(db, evidence, actor=args.actor)
+            db.commit()
+            print(f"Geographic security evidence created with id {evidence.id}.")
+            return
+
         if args.command == "create-zone":
             boundary = json.loads(args.boundary_file.read_text(encoding="utf-8"))
             if boundary.get("type") != "Polygon" or not boundary.get("coordinates"):
@@ -101,6 +180,13 @@ def main():
             parser.error("ticker must identify an enabled catalog collectible.")
         if not point_is_in_enabled_zone(db, args.latitude, args.longitude, zone.id):
             parser.error("The spawn coordinates must lie inside the enabled zone.")
+        decision = classify_geographic_safety(
+            db, args.latitude, args.longitude, args.collection_radius_meters
+        )
+        if not decision.allows_generation:
+            parser.error(
+                "The spawn location is not classified safe by current geographic evidence."
+            )
         point = SpawnPoint(
             zone_id=zone.id,
             collectible_id=collectible.id,

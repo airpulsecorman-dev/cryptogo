@@ -17,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import UserDefinedType
 
 
 def utcnow() -> datetime:
@@ -25,6 +26,13 @@ def utcnow() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+class GeographicGeometry(UserDefinedType):
+    cache_ok = True
+
+    def get_col_spec(self, **_kw):
+        return "geometry"
 
 
 class User(Base):
@@ -114,6 +122,68 @@ class Zone(Base):
     name: Mapped[str] = mapped_column(String(120))
     boundary_geojson: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
+
+class GeographicSecurityEvidence(Base):
+    __tablename__ = "geographic_security_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "security_status IN ('safe', 'caution', 'restricted', 'unknown')",
+            name="ck_geo_security_status",
+        ),
+        CheckConstraint(
+            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)",
+            name="ck_geo_security_confidence",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    geometry_geojson: Mapped[str | None] = mapped_column(Text, nullable=True)
+    geom: Mapped[object | None] = mapped_column(GeographicGeometry(), nullable=True)
+    security_status: Mapped[str] = mapped_column(String(16))
+    place_type: Mapped[str] = mapped_column(String(64))
+    source_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    source_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    license_terms: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    access_status: Mapped[str] = mapped_column(String(24), default="unknown")
+    imported_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    validation_status: Mapped[str] = mapped_column(String(24), default="unreviewed")
+    rule_applied: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    policy_version: Mapped[str] = mapped_column(String(32), default="geo-safety-v1")
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class GeographicSecurityAuditLog(Base):
+    __tablename__ = "geographic_security_audit_logs"
+
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    evidence_id: Mapped[UUID] = mapped_column(Uuid, index=True)
+    action: Mapped[str] = mapped_column(String(32))
+    actor: Mapped[str] = mapped_column(String(160))
+    previous_value: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    new_value: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow
     )

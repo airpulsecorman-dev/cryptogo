@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..geographic_safety import classify_geographic_safety, classify_geographic_safety_batch
 from ..geo import haversine_meters, nearby_rows, point_is_in_enabled_zone
 from ..models import (
     AntiCheatEvent,
@@ -108,8 +109,26 @@ def get_nearby_collectibles(
             "items": [],
             "message": "No hay una zona de juego habilitada en esta ubicación.",
         }
+    player_safety = classify_geographic_safety(db, latitude, longitude)
+    if not player_safety.allows_query:
+        return {
+            "items": [],
+            "message": "No hay una ubicación verificada para jugar en esta zona.",
+        }
     now = utcnow()
     rows = nearby_rows(db, latitude, longitude, radius_meters, now)
+    spawn_decisions = classify_geographic_safety_batch(
+        db,
+        [
+            (
+                float(row["latitude"]),
+                float(row["longitude"]),
+                float(row["collection_radius_meters"]),
+            )
+            for row in rows
+        ],
+        now=now,
+    )
     items = [
         {
             "id": row["id"],
@@ -123,7 +142,8 @@ def get_nearby_collectibles(
             "collection_radius_meters": row["collection_radius_meters"],
             "expires_at": row["expires_at"],
         }
-        for row in rows
+        for row, decision in zip(rows, spawn_decisions, strict=True)
+        if decision.allows_query
     ]
     return {"items": items, "message": None}
 
@@ -137,6 +157,9 @@ def get_nearby_zones(
 ):
     from ..models import Zone
 
+    decision = classify_geographic_safety(db, latitude, longitude)
+    if not decision.allows_query:
+        return {"items": []}
     zones = db.query(Zone).filter(Zone.enabled.is_(True)).all()
     return {
         "items": [
@@ -237,6 +260,29 @@ def collect(
         _log_anomaly(db, user.id, spawn.id, "outside_enabled_zone")
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "La ubicación está fuera de una zona habilitada."
+        )
+
+    safety_decisions = classify_geographic_safety_batch(
+        db,
+        [
+            (
+                body.latitude,
+                body.longitude,
+                body.accuracy_meters,
+            ),
+            (
+                spawn.latitude,
+                spawn.longitude,
+                spawn.collection_radius_meters + body.accuracy_meters,
+            ),
+        ],
+        now=now,
+    )
+    if any(not decision.allows_collection for decision in safety_decisions):
+        _log_anomaly(db, user.id, spawn.id, "geographic_safety_not_green")
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "La ubicación no está autorizada para recoger objetos.",
         )
 
     distance = _distance(db, body.latitude, body.longitude, spawn)

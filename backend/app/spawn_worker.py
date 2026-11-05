@@ -7,6 +7,7 @@ from .config import Settings
 from pathlib import Path
 
 from .database import create_session_factory
+from .geographic_safety import classify_geographic_safety
 from .models import SpawnInstance, SpawnPoint, Zone, utcnow
 
 
@@ -25,6 +26,14 @@ def generate_dynamic_spawns(session_factory) -> int:
             .with_for_update(skip_locked=True)
         ).all()
         for point in points:
+            decision = classify_geographic_safety(
+                db,
+                point.latitude,
+                point.longitude,
+                point.collection_radius_meters,
+            )
+            if not decision.allows_generation:
+                continue
             active = db.scalar(
                 select(SpawnInstance.id)
                 .where(

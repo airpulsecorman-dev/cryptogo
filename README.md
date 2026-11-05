@@ -334,6 +334,21 @@ No se habilitarán ubicaciones en propiedades privadas, carreteras
 peligrosas, vías rápidas, instalaciones sensibles, zonas restringidas o
 espacios sin acceso público autorizado.
 
+`zones.enabled` es únicamente un control operativo heredado: no constituye
+evidencia de que una ubicación sea segura. La autorización para jugar la
+determina el backend a partir de evidencia geográfica independiente y vigente.
+El clasificador resuelve conflictos con la precedencia
+`restricted > unknown > caution > safe`. Solo evidencia verificada, con
+procedencia y licencia, geometría válida, acceso público o autorizado y
+confianza mínima de 0.90 puede producir `safe`. La ausencia de restricciones
+conocidas nunca produce seguridad por sí sola.
+
+Las zonas históricas se conservan sin cambios y se consideran `unknown` hasta
+que se agregue evidencia nueva y revisada. En consecuencia, no generan ni
+exponen objetos ni permiten recogerlos mientras no se verifiquen. La migración
+no clasifica ni habilita datos existentes. La primera fase no importa fuentes
+geográficas mundiales ni inventa ubicaciones.
+
 ## 5.5 Consulta del mapa
 
 El frontend no descargará el mapa completo del país. Consultará objetos
@@ -1057,16 +1072,18 @@ sola.
 4. Verificar que esté disponible y no haya expirado.
 5. Validar zona y geocerca.
 6. Calcular distancia en el servidor.
-7. Evaluar precisión y señales antitrampas.
-8. Iniciar transacción.
-9. Bloquear la aparición para evitar concurrencia.
-10. Verificar nuevamente disponibilidad.
-11. Insertar la colección.
-12. Insertar movimientos de puntos y XP.
-13. Actualizar perfil y misiones.
-14. Marcar la aparición como recogida.
-15. Confirmar la transacción.
-16. Devolver resultado.
+7. Volver a clasificar la ubicación del jugador usando la incertidumbre GPS y
+   la ubicación del objeto, aplicando el margen del radio de recogida.
+8. Evaluar precisión y señales antitrampas.
+9. Iniciar transacción.
+10. Bloquear la aparición para evitar concurrencia.
+11. Verificar nuevamente disponibilidad.
+12. Insertar la colección.
+13. Insertar movimientos de puntos y XP.
+14. Actualizar perfil y misiones.
+15. Marcar la aparición como recogida.
+16. Confirmar la transacción.
+17. Devolver resultado.
 
 Si cualquier operación crítica falla, la transacción debe revertirse.
 
@@ -1339,17 +1356,23 @@ subir `.env` al repositorio.
    `REACT_APP_ENABLE_DEV_AUTH=true` y el API tiene `APP_ENV=development` más
    `DEV_AUTH_ENABLED=true`.
 4. Para probar recolección, primero registra una zona GeoJSON segura,
-   verificada y de acceso público desde `backend/`, y crea un punto dentro de
-   ella con `python -m app.cli create-zone` y
-   `python -m app.cli create-spawn`. Los comandos requieren coordenadas reales
-   y una zona habilitada. Los puntos `--dynamic` se generan por el worker;
-   los fijos crean una aparición al provisionarse.
+   verificada y de acceso público desde `backend/`. Crea la zona con
+   `python -m app.cli create-zone`, registra su evidencia revisada con
+   `python -m app.cli create-security-evidence` (incluyendo geometría,
+   procedencia, licencia, confianza, vigencia y actor), y después crea un punto
+   con `python -m app.cli create-spawn`. Proporciona únicamente geometrías y
+   fuentes cuya revisión tengas autorización para afirmar. La opción `--enable`
+   de zona no sustituye la evidencia. Los puntos `--dynamic` se generan por el
+   worker solo si el clasificador vuelve a permitirlos; los fijos también se
+   rechazan si no son verdes. No se incluyen ubicaciones de ejemplo.
 5. Si se usa Telegram, configura `TELEGRAM_BOT_TOKEN` fuera del repositorio y
    registra el dominio HTTPS de la Mini App con el bot.
 
 `docker-compose.yml` no proporciona ubicaciones de juego iniciales. Sin una
-zona y un punto aprobados, el mapa real se muestra sin coleccionables, no con
-un resultado ficticio.
+zona, evidencia vigente y un punto aprobados, el mapa real se muestra sin
+coleccionables, no con un resultado ficticio. Una Mini App web no puede probar
+la autenticidad del GPS reportado por el cliente; precisión y marca temporal
+son señales declaradas, no atestaciones del sensor.
 
 ### Producción
 

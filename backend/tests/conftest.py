@@ -5,8 +5,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.geographic_safety import persist_geographic_evidence
 from app.main import create_app
-from app.models import Base, Collectible, PlayerProfile, SpawnInstance, User, Zone, utcnow
+from app.models import (
+    Base,
+    Collectible,
+    GeographicSecurityEvidence,
+    PlayerProfile,
+    SpawnInstance,
+    User,
+    Zone,
+    utcnow,
+)
 
 
 @pytest.fixture
@@ -77,6 +87,33 @@ def create_spawn(client: TestClient, *, expires_at=None, latitude=0.0, longitude
         )
         db.add_all([zone, collectible])
         db.flush()
+        persist_geographic_evidence(
+            db,
+            GeographicSecurityEvidence(
+                geometry_geojson=json.dumps(
+                    {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]
+                        ],
+                    }
+                ),
+                security_status="safe",
+                place_type="verified_test_area",
+                source_name="Test source",
+                source_identifier=f"test-zone-{zone.id}",
+                license_terms="Test-only fixture",
+                access_status="public",
+                verified_at=utcnow(),
+                expires_at=utcnow() + timedelta(days=30),
+                confidence=0.99,
+                validation_status="verified",
+                rule_applied="test_verified_public_area",
+                policy_version="geo-safety-v1",
+                reason="Verified test fixture.",
+            ),
+            actor="tests",
+        )
         spawn = SpawnInstance(
             zone_id=zone.id,
             collectible_id=collectible.id,
