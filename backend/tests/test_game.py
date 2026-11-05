@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.geo import point_is_in_enabled_zone
 from app.models import (
     AntiCheatEvent,
     AuthSession,
@@ -207,6 +209,28 @@ def test_nearby_requires_a_real_enabled_zone_and_location(client):
     assert response.json()["items"][0]["id"] == spawn_id
     outside = client.get("/api/v1/collectibles/nearby?latitude=10&longitude=10")
     assert outside.json()["items"] == []
+
+
+def test_polygon_boundaries_are_considered_inside_enabled_zones(client):
+    with client.app.state.session_factory() as db:
+        zone = Zone(
+            name="Boundary zone",
+            enabled=True,
+            boundary_geojson=json.dumps(
+                {
+                    "type": "Polygon",
+                    "coordinates": [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]],
+                }
+            ),
+        )
+        db.add(zone)
+        db.commit()
+
+        assert point_is_in_enabled_zone(db, 0.0, 0.0, zone.id)
+        assert point_is_in_enabled_zone(db, 0.0, -1.0, zone.id)
+        assert point_is_in_enabled_zone(db, 1.0, 1.0, zone.id)
+        assert point_is_in_enabled_zone(db, 0.5, 1.0, zone.id)
+        assert not point_is_in_enabled_zone(db, 2.0, 2.0, zone.id)
 
 
 def test_invalid_or_expired_telegram_initdata_is_rejected(client):

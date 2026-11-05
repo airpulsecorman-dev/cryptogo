@@ -8,36 +8,119 @@ from sqlalchemy.orm import Session
 from .models import Zone
 
 
-def haversine_meters(latitude_a: float, longitude_a: float, latitude_b: float, longitude_b: float) -> float:
+def haversine_meters(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
     earth_radius_meters = 6_371_000
     lat_a, lat_b = math.radians(latitude_a), math.radians(latitude_b)
     delta_lat = lat_b - lat_a
     delta_lon = math.radians(longitude_b - longitude_a)
-    value = math.sin(delta_lat / 2) ** 2 + math.cos(lat_a) * math.cos(lat_b) * math.sin(delta_lon / 2) ** 2
+    value = (
+        math.sin(delta_lat / 2) ** 2
+        + math.cos(lat_a) * math.cos(lat_b) * math.sin(delta_lon / 2) ** 2
+    )
     return 2 * earth_radius_meters * math.asin(math.sqrt(value))
 
 
+def _point_on_segment(
+    longitude: float,
+    latitude: float,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    tolerance: float = 1e-9,
+) -> bool:
+    cross_product = (x2 - x1) * (latitude - y1) - (y2 - y1) * (longitude - x1)
+    if abs(cross_product) > tolerance:
+        return False
+    min_x, max_x = sorted((x1, x2))
+    min_y, max_y = sorted((y1, y2))
+    return (
+        min_x - tolerance <= longitude <= max_x + tolerance
+        and min_y - tolerance <= latitude <= max_y + tolerance
+    )
+
+
+def _ring_has_boundary_point(
+    longitude: float, latitude: float, ring: list[list[float]]
+) -> bool:
+    if len(ring) < 3:
+        return False
+    for index in range(len(ring) - 1):
+        x1, y1 = ring[index][:2]
+        x2, y2 = ring[index + 1][:2]
+        if _point_on_segment(longitude, latitude, x1, y1, x2, y2):
+            return True
+    return False
+
+
 def _point_in_ring(longitude: float, latitude: float, ring: list[list[float]]) -> bool:
-    inside = False
+    if len(ring) < 3:
+        return False
+    if _ring_has_boundary_point(longitude, latitude, ring):
+        return True
     previous = ring[-1]
+    inside = False
     for current in ring:
         x1, y1 = previous[:2]
         x2, y2 = current[:2]
+        x1, y1, x2, y2 = (float(x1), float(y1), float(x2), float(y2))
         crosses = (y1 > latitude) != (y2 > latitude)
-        if crosses and longitude < (x2 - x1) * (latitude - y1) / (y2 - y1) + x1:
-            inside = not inside
+        if crosses:
+            intersection_x = (x2 - x1) * (latitude - y1) / (y2 - y1) + x1
+            if longitude < intersection_x:
+                inside = not inside
         previous = current
     return inside
 
 
-def _sqlite_covers(zone: Zone, latitude: float, longitude: float) -> bool:
-    geometry = json.loads(zone.boundary_geojson)
-    if geometry.get("type") != "Polygon" or not geometry.get("coordinates"):
+def _sqlite_covers_geometry(geometry: dict, latitude: float, longitude: float) -> bool:
+    if not geometry or not isinstance(geometry, dict):
         return False
-    rings = geometry["coordinates"]
-    return _point_in_ring(longitude, latitude, rings[0]) and not any(
-        _point_in_ring(longitude, latitude, hole) for hole in rings[1:]
-    )
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    if not coordinates:
+        return False
+
+    if geometry_type == "MultiPolygon":
+        for polygon in coordinates:
+            if _sqlite_covers_geometry(
+                {"type": "Polygon", "coordinates": polygon}, latitude, longitude
+            ):
+                return True
+        return False
+
+    if geometry_type != "Polygon":
+        return False
+
+    rings = coordinates
+    outer_ring = rings[0]
+    if not isinstance(outer_ring, list) or len(outer_ring) < 3:
+        return False
+
+    if _ring_has_boundary_point(longitude, latitude, outer_ring):
+        return True
+    if not _point_in_ring(longitude, latitude, outer_ring):
+        return False
+
+    for hole in rings[1:]:
+        if _ring_has_boundary_point(longitude, latitude, hole):
+            return True
+        if _point_in_ring(longitude, latitude, hole):
+            return False
+    return True
+
+
+def _sqlite_covers(zone: Zone, latitude: float, longitude: float) -> bool:
+    try:
+        geometry = json.loads(zone.boundary_geojson)
+    except (TypeError, ValueError):
+        return False
+    return _sqlite_covers_geometry(geometry, latitude, longitude)
 
 
 def point_is_in_enabled_zone(
@@ -129,7 +212,9 @@ def nearby_rows(
     )
     results = []
     for spawn, collectible, zone in spawns:
-        distance = haversine_meters(latitude, longitude, spawn.latitude, spawn.longitude)
+        distance = haversine_meters(
+            latitude, longitude, spawn.latitude, spawn.longitude
+        )
         if (
             distance <= min(radius_meters, spawn.visibility_radius_meters)
             and _sqlite_covers(zone, spawn.latitude, spawn.longitude)
