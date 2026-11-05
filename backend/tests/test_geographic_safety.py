@@ -9,6 +9,7 @@ from app.geographic_safety import (
 )
 from app.models import (
     Collectible,
+    GeographicSecurityAuditLog,
     GeographicSecurityEvidence,
     SpawnInstance,
     SpawnPoint,
@@ -211,6 +212,25 @@ def test_nearby_query_hides_objects_when_player_location_is_not_green(client):
     assert zones.json()["items"] == []
 
 
+def test_nearby_query_omits_a_restricted_spawn_for_a_safe_player(client):
+    create_player(client)
+    create_spawn(client)
+    with client.app.state.session_factory() as db:
+        add_evidence(
+            db,
+            geometry=square(delta=0.0001),
+            status="restricted",
+            source_identifier="restricted-spawn-area",
+        )
+
+    response = client.get(
+        "/api/v1/collectibles/nearby?"
+        "latitude=0&longitude=0.005&radius_meters=1500"
+    )
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
 def test_collection_is_rejected_if_safety_classification_changes(client):
     create_player(client)
     spawn_id = create_spawn(client)
@@ -258,3 +278,16 @@ def test_legacy_enabled_zone_is_not_implicitly_safe(client):
         db.add(zone)
         db.commit()
         assert classify_geographic_safety(db, 0, 0).status == "unknown"
+
+
+def test_evidence_creation_is_audited_with_geometry_fingerprint(client):
+    with client.app.state.session_factory() as db:
+        evidence = add_evidence(db)
+        audit = (
+            db.query(GeographicSecurityAuditLog)
+            .filter_by(evidence_id=evidence.id)
+            .one()
+        )
+        assert audit.action == "created"
+        assert audit.actor == "tests"
+        assert audit.new_value["geometry_sha256"]

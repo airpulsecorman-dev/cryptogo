@@ -1,3 +1,4 @@
+import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -386,8 +387,10 @@ def _evaluate_candidates(
     for record in records:
         reason = record.get("reason") or ""
         status = record.get("security_status")
+        rule = record.get("rule_applied")
         expiry = _time_utc(record.get("expires_at"))
         verified = _time_utc(record.get("verified_at"))
+        imported = _time_utc(record.get("imported_at"))
         provenance_present = all(
             isinstance(record.get(field), str) and record[field].strip()
             for field in ("source_name", "source_identifier", "license_terms")
@@ -396,17 +399,25 @@ def _evaluate_candidates(
             record.get("geometry_valid") is False
             or record.get("validation_status") != "verified"
             or not provenance_present
+            or imported is None
+            or imported > now
             or verified is None
             or expiry is None
             or expiry <= now
             or verified > now
+            or record.get("policy_version") != POLICY_VERSION
             or status not in _ALLOWED_STATUSES
         ):
             status = "unknown"
-            reason = reason or "Evidence is invalid, stale, unverified, or lacks provenance."
+            reason = (
+                "Evidence is invalid, expired, unverified, lacks provenance, "
+                "or uses an obsolete policy version."
+            )
+            rule = "evidence_invalid_or_stale"
         elif record.get("access_status") == "restricted":
             status = "restricted"
             reason = reason or "The verified evidence marks this area as restricted."
+            rule = "restricted_access"
         elif status == "safe" and (
             not isinstance(record.get("confidence"), (int, float))
             or not math.isfinite(record["confidence"])
@@ -416,8 +427,9 @@ def _evaluate_candidates(
             or record.get("access_status") not in {"public", "authorized"}
         ):
             status = "unknown"
-            reason = reason or "Safe access and confidence requirements are not met."
-        resolved.append((status, record, reason or status))
+            reason = "Safe access and confidence requirements are not met."
+            rule = "safe_requirements_not_met"
+        resolved.append((status, record, reason or status, rule or f"evidence_{status}"))
 
     if not resolved:
         return GeographicSafetyDecision(
@@ -434,16 +446,16 @@ def _evaluate_candidates(
         )
 
     winning_status = max(
-        (status for status, _record, _reason in resolved),
+        (status for status, _record, _reason, _rule in resolved),
         key=lambda status: _PRECEDENCE[status],
     )
     winning_records = [
-        (record, reason)
-        for status, record, reason in resolved
+        (record, reason, rule)
+        for status, record, reason, rule in resolved
         if status == winning_status
     ]
     ordered_records = sorted(
-        (record for record, _reason in winning_records),
+        (record for record, _reason, _rule in winning_records),
         key=lambda record: str(record.get("id") or ""),
     )
     sources = tuple(
@@ -464,13 +476,9 @@ def _evaluate_candidates(
         if (expiry := _time_utc(record.get("expires_at"))) is not None
     ]
     rules = sorted(
-        {
-            record.get("rule_applied")
-            or f"evidence_{record.get('security_status', 'unknown')}"
-            for record in ordered_records
-        }
+        {rule for _record, _reason, rule in winning_records}
     )
-    reasons = sorted({reason for _record, reason in winning_records})
+    reasons = sorted({reason for _record, reason, _rule in winning_records})
     allowed = winning_status == "safe"
     return GeographicSafetyDecision(
         status=winning_status,
@@ -562,6 +570,9 @@ def persist_geographic_evidence(
         "rule_applied": evidence.rule_applied,
         "policy_version": evidence.policy_version,
         "reason": evidence.reason,
+        "geometry_sha256": hashlib.sha256(
+            (evidence.geometry_geojson or "").encode("utf-8")
+        ).hexdigest(),
         "expires_at": evidence.expires_at.isoformat() if evidence.expires_at else None,
     }
     db.add(
