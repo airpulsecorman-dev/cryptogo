@@ -212,6 +212,115 @@ def test_nearby_query_hides_objects_when_player_location_is_not_green(client):
     assert zones.json()["items"] == []
 
 
+@pytest.mark.parametrize(
+    ("status", "allows_play"),
+    [
+        ("safe", True),
+        ("caution", False),
+        ("restricted", False),
+        ("unknown", False),
+    ],
+)
+def test_security_map_returns_only_viewport_classification_and_public_geometry(
+    client, status, allows_play
+):
+    create_player(client)
+    with client.app.state.session_factory() as db:
+        add_evidence(db, status=status)
+
+    response = client.get(
+        "/api/v1/security/zones/nearby?"
+        "west=-0.02&south=-0.02&east=0.02&north=0.02"
+    )
+    assert response.status_code == 200
+    collection = response.json()
+    assert collection["type"] == "FeatureCollection"
+    assert len(collection["features"]) == 1
+    feature = collection["features"][0]
+    assert feature["geometry"] == square()
+    assert feature["properties"] == {
+        "security_status": status,
+        "allows_play": allows_play,
+    }
+
+
+def test_security_map_does_not_infer_unknown_or_return_out_of_view_zones(client):
+    create_player(client)
+    with client.app.state.session_factory() as db:
+        add_evidence(db, status="safe")
+
+    empty = client.get(
+        "/api/v1/security/zones/nearby?"
+        "west=10&south=10&east=11&north=11"
+    )
+    assert empty.status_code == 200
+    assert empty.json() == {"type": "FeatureCollection", "features": []}
+
+    invalid_bounds = client.get(
+        "/api/v1/security/zones/nearby?"
+        "west=-0.02&south=0.02&east=0.02&north=-0.02"
+    )
+    assert invalid_bounds.status_code == 422
+
+
+def test_security_map_does_not_expose_evidence_metadata_or_zone_ids(client):
+    create_player(client)
+    with client.app.state.session_factory() as db:
+        add_evidence(db, status="restricted")
+
+    response = client.get(
+        "/api/v1/security/zones/nearby?"
+        "west=-0.02&south=-0.02&east=0.02&north=0.02"
+    )
+    feature = response.json()["features"][0]
+    assert set(feature) == {"type", "geometry", "properties"}
+    assert set(feature["properties"]) == {"security_status", "allows_play"}
+
+
+def test_security_map_orders_overlaps_by_security_precedence(client):
+    create_player(client)
+    with client.app.state.session_factory() as db:
+        add_evidence(db, status="safe")
+        add_evidence(db, status="caution", source_identifier="overlap-caution")
+        add_evidence(db, status="unknown", source_identifier="overlap-unknown")
+        add_evidence(db, status="restricted", source_identifier="overlap-restricted")
+
+    response = client.get(
+        "/api/v1/security/zones/nearby?"
+        "west=-0.02&south=-0.02&east=0.02&north=0.02"
+    )
+    assert response.status_code == 200
+    assert [
+        feature["properties"]["security_status"]
+        for feature in response.json()["features"]
+    ] == ["safe", "caution", "unknown", "restricted"]
+
+
+def test_security_map_updates_when_evidence_classification_changes(client):
+    create_player(client)
+    with client.app.state.session_factory() as db:
+        evidence = add_evidence(db, status="safe")
+        evidence_id = evidence.id
+
+    url = (
+        "/api/v1/security/zones/nearby?"
+        "west=-0.02&south=-0.02&east=0.02&north=0.02"
+    )
+    safe = client.get(url)
+    assert safe.json()["features"][0]["properties"]["security_status"] == "safe"
+
+    with client.app.state.session_factory() as db:
+        evidence = db.get(GeographicSecurityEvidence, evidence_id)
+        evidence.security_status = "restricted"
+        db.commit()
+
+    restricted = client.get(url)
+    assert (
+        restricted.json()["features"][0]["properties"]["security_status"]
+        == "restricted"
+    )
+
+
 def test_nearby_query_omits_a_restricted_spawn_for_a_safe_player(client):
     create_player(client)
     create_spawn(client)

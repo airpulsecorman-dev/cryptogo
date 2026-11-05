@@ -107,6 +107,11 @@ export const api = {
     request(
       `/zones/nearby?latitude=${encodeURIComponent(position.latitude)}&longitude=${encodeURIComponent(position.longitude)}`,
     ),
+  securityZones: (bounds, options = {}) =>
+    request(
+      `/security/zones/nearby?west=${encodeURIComponent(bounds.west)}&south=${encodeURIComponent(bounds.south)}&east=${encodeURIComponent(bounds.east)}&north=${encodeURIComponent(bounds.north)}`,
+      options,
+    ),
   collect: (position, spawnInstanceId, key = createIdempotencyKey()) =>
     request("/collectibles/collect", {
       method: "POST",

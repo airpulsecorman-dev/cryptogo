@@ -13,10 +13,12 @@ const MAP_STYLE =
 function MapView({
   position,
   discoveries,
-  zones,
+  securityZones,
   selectedId,
   onSelect,
   onMapMove,
+  onViewportChange,
+  onSecurityZoneSelect,
   zoom,
   onZoomChange,
 }) {
@@ -25,8 +27,12 @@ function MapView({
   const markersRef = useRef([]);
   const playerMarkerRef = useRef(null);
   const mapMoveHandlerRef = useRef(onMapMove);
+  const viewportHandlerRef = useRef(onViewportChange);
+  const securityZoneHandlerRef = useRef(onSecurityZoneSelect);
   const [loaded, setLoaded] = useState(false);
   mapMoveHandlerRef.current = onMapMove;
+  viewportHandlerRef.current = onViewportChange;
+  securityZoneHandlerRef.current = onSecurityZoneSelect;
 
   useEffect(() => {
     const map = new MapLibre({
@@ -37,17 +43,48 @@ function MapView({
       attributionControl: true,
     });
     mapRef.current = map;
-    map.on("load", () => setLoaded(true));
-    map.on("zoomend", () => onZoomChange(map.getZoom()));
-    map.on("moveend", () => {
+    const reportViewport = () => {
+      const bounds = map.getBounds();
+      const rawWest = bounds.getWest();
+      const rawEast = bounds.getEast();
+      const wrapLongitude = (longitude) =>
+        ((longitude + 180) % 360 + 360) % 360 - 180;
+      viewportHandlerRef.current?.({
+        west:
+          Math.abs(rawEast - rawWest) >= 360
+            ? -180
+            : wrapLongitude(rawWest),
+        south: bounds.getSouth(),
+        east:
+          Math.abs(rawEast - rawWest) >= 360
+            ? 180
+            : wrapLongitude(rawEast),
+        north: bounds.getNorth(),
+      });
+    };
+    const handleLoad = () => {
+      setLoaded(true);
+      reportViewport();
+    };
+    const handleZoom = () => onZoomChange(map.getZoom());
+    const handleMove = () => {
       const center = map.getCenter();
       mapMoveHandlerRef.current?.({
         latitude: center.lat,
         longitude: center.lng,
       });
-    });
+      reportViewport();
+    };
+    map.on("load", handleLoad);
+    map.on("zoomend", handleZoom);
+    map.on("zoomend", reportViewport);
+    map.on("moveend", handleMove);
 
     return () => {
+      map.off("load", handleLoad);
+      map.off("zoomend", handleZoom);
+      map.off("zoomend", reportViewport);
+      map.off("moveend", handleMove);
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];
       playerMarkerRef.current?.remove();
@@ -90,35 +127,89 @@ function MapView({
   useEffect(() => {
     if (!loaded || !mapRef.current) return;
     const map = mapRef.current;
-    const featureCollection = {
-      type: "FeatureCollection",
-      features: zones.map((zone) => ({
-        type: "Feature",
-        geometry: zone.boundary,
-        properties: { id: zone.id, name: zone.name },
-      })),
-    };
-    if (map.getSource("enabled-zones")) {
-      map.getSource("enabled-zones").setData(featureCollection);
-      return;
+    if (!map.getSource("security-zones")) {
+      map.addSource("security-zones", {
+        type: "geojson",
+        data: securityZones,
+      });
+      const firstSymbolLayer = map
+        .getStyle()
+        .layers.find((layer) => layer.type === "symbol")?.id;
+      const colors = {
+        safe: "#49d17d",
+        caution: "#f4c542",
+        restricted: "#f06464",
+        unknown: "#a7b0bc",
+      };
+      Object.entries(colors).forEach(([status, color]) => {
+        map.addLayer(
+          {
+            id: `security-zones-${status}-fill`,
+            type: "fill",
+            source: "security-zones",
+            filter: ["==", ["get", "security_status"], status],
+            paint: {
+              "fill-color": color,
+              "fill-opacity": 0.16,
+            },
+          },
+          firstSymbolLayer,
+        );
+        map.addLayer(
+          {
+            id: `security-zones-${status}-outline`,
+            type: "line",
+            source: "security-zones",
+            filter: ["==", ["get", "security_status"], status],
+            paint: {
+              "line-color": color,
+              "line-width": 2,
+              "line-opacity": 0.9,
+            },
+          },
+          firstSymbolLayer,
+        );
+      });
     }
-    map.addSource("enabled-zones", {
-      type: "geojson",
-      data: featureCollection,
-    });
-    map.addLayer({
-      id: "enabled-zones-fill",
-      type: "fill",
-      source: "enabled-zones",
-      paint: { "fill-color": "#c5f36b", "fill-opacity": 0.08 },
-    });
-    map.addLayer({
-      id: "enabled-zones-outline",
-      type: "line",
-      source: "enabled-zones",
-      paint: { "line-color": "#c5f36b", "line-width": 2, "line-opacity": 0.7 },
-    });
-  }, [loaded, zones]);
+    map.getSource("security-zones").setData(securityZones);
+  }, [loaded, securityZones]);
+
+  useEffect(() => {
+    if (!loaded || !mapRef.current) return undefined;
+    const map = mapRef.current;
+    const selectableLayers = [
+      "restricted",
+      "unknown",
+      "caution",
+      "safe",
+    ].map((status) => `security-zones-${status}-fill`);
+    const handleZoneClick = (event) => {
+      const precedence = {
+        safe: 0,
+        caution: 1,
+        unknown: 2,
+        restricted: 3,
+      };
+      const feature = map
+        .queryRenderedFeatures(event.point, { layers: selectableLayers })
+        .sort(
+          (first, second) =>
+            precedence[second.properties.security_status] -
+            precedence[first.properties.security_status],
+        )[0];
+      if (!feature) {
+        securityZoneHandlerRef.current?.(null);
+        return;
+      }
+      const properties = feature.properties;
+      securityZoneHandlerRef.current?.({
+        status: properties.security_status,
+        allowsPlay: properties.allows_play,
+      });
+    };
+    map.on("click", handleZoneClick);
+    return () => map.off("click", handleZoneClick);
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded || !mapRef.current) return;

@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import MapView from "./MapView";
 import { api, createIdempotencyKey, developmentAuthEnabled } from "./api";
+import {
+  securityZoneDescription,
+  validateSecurityZoneCollection,
+} from "./securityZones";
 import WalletLogin from "./WalletLogin";
+
+const EMPTY_SECURITY_ZONES = { type: "FeatureCollection", features: [] };
 
 const sections = [
   { id: "map", icon: "⌖", label: "Mapa" },
@@ -20,9 +26,13 @@ function App() {
   const [telegramAvailable, setTelegramAvailable] = useState(false);
   const [position, setPosition] = useState(null);
   const [mapQueryPosition, setMapQueryPosition] = useState(null);
+  const [securityViewport, setSecurityViewport] = useState(null);
+  const [securityZones, setSecurityZones] = useState(EMPTY_SECURITY_ZONES);
+  const [securityZonesLoading, setSecurityZonesLoading] = useState(false);
+  const [securityZonesError, setSecurityZonesError] = useState("");
+  const [selectedSecurityZone, setSelectedSecurityZone] = useState(null);
   const [locationMessage, setLocationMessage] = useState("");
   const [discoveries, setDiscoveries] = useState([]);
-  const [zones, setZones] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [mapZoom, setMapZoom] = useState(5);
   const [inventory, setInventory] = useState(null);
@@ -33,6 +43,7 @@ function App() {
   const [collecting, setCollecting] = useState(false);
   const [notice, setNotice] = useState("");
   const collectionAttempt = useRef(null);
+  const securityViewportKey = useRef("");
 
   const selectedDiscovery = useMemo(
     () => discoveries.find(({ id }) => id === selectedId),
@@ -96,12 +107,11 @@ function App() {
   useEffect(() => {
     if (!player || !mapQueryPosition) return undefined;
     let active = true;
-    setLocationMessage("Buscando objetos y zonas habilitadas…");
-    Promise.all([api.nearby(mapQueryPosition), api.zones(mapQueryPosition)])
-      .then(([nearby, enabledZones]) => {
+    setLocationMessage("Buscando objetos cercanos…");
+    api.nearby(mapQueryPosition)
+      .then((nearby) => {
         if (!active) return;
         setDiscoveries(nearby.items);
-        setZones(enabledZones.items);
         setSelectedId((current) =>
           nearby.items.some(({ id }) => id === current)
             ? current
@@ -121,6 +131,34 @@ function App() {
       active = false;
     };
   }, [player, mapQueryPosition]);
+
+  useEffect(() => {
+    if (activeSection !== "map" || !player || !securityViewport) {
+      return undefined;
+    }
+    let active = true;
+    const controller = new AbortController();
+    setSecurityZonesLoading(true);
+    setSecurityZonesError("");
+    api
+      .securityZones(securityViewport, { signal: controller.signal })
+      .then(validateSecurityZoneCollection)
+      .then((collection) => {
+        if (active) setSecurityZones(collection);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSecurityZones(EMPTY_SECURITY_ZONES);
+        setSecurityZonesError(error.message);
+      })
+      .finally(() => {
+        if (active) setSecurityZonesLoading(false);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [activeSection, player, securityViewport]);
 
   useEffect(() => {
     if (activeSection === "map") return undefined;
@@ -204,6 +242,21 @@ function App() {
     [position],
   );
 
+  const handleViewportChange = useCallback((bounds) => {
+    const roundedBounds = Object.fromEntries(
+      Object.entries(bounds).map(([key, value]) => [
+        key,
+        Number(value.toFixed(5)),
+      ]),
+    );
+    const key = JSON.stringify(roundedBounds);
+    if (securityViewportKey.current === key) return;
+    securityViewportKey.current = key;
+    setSecurityZones(EMPTY_SECURITY_ZONES);
+    setSelectedSecurityZone(null);
+    setSecurityViewport(roundedBounds);
+  }, []);
+
   async function collectDiscovery() {
     if (!selectedDiscovery || !position || collecting) return;
     setCollecting(true);
@@ -233,12 +286,8 @@ function App() {
         `${result.message} · +${result.rewards.points} puntos · +${result.rewards.xp} XP`,
       );
       const queryPosition = mapQueryPosition || position;
-      const [nearby, enabledZones] = await Promise.all([
-        api.nearby(queryPosition),
-        api.zones(queryPosition),
-      ]);
+      const nearby = await api.nearby(queryPosition);
       setDiscoveries(nearby.items);
-      setZones(enabledZones.items);
       setSelectedId(nearby.items[0]?.id || "");
       setLocationMessage(
         nearby.message ||
@@ -359,13 +408,18 @@ function App() {
               selectedId={selectedId}
               locationMessage={locationMessage}
               position={position}
-              zones={zones}
+              securityZones={securityZones}
+              securityZonesLoading={securityZonesLoading}
+              securityZonesError={securityZonesError}
+              selectedSecurityZone={selectedSecurityZone}
               mapZoom={mapZoom}
               collecting={collecting}
               pageError={pageError}
               onSelect={setSelectedId}
+              onSecurityZoneSelect={setSelectedSecurityZone}
               onLocate={locatePlayer}
               onMapMove={handleMapMove}
+              onViewportChange={handleViewportChange}
               onCollect={collectDiscovery}
               onZoomChange={handleZoomChange}
             />
@@ -506,13 +560,18 @@ function MapSection({
   selectedId,
   locationMessage,
   position,
-  zones,
+  securityZones,
+  securityZonesLoading,
+  securityZonesError,
+  selectedSecurityZone,
   mapZoom,
   collecting,
   pageError,
   onSelect,
+  onSecurityZoneSelect,
   onLocate,
   onMapMove,
+  onViewportChange,
   onCollect,
   onZoomChange,
 }) {
@@ -530,13 +589,15 @@ function MapSection({
     position &&
     position.accuracy <= 50 &&
     gpsDistance <= selectedDiscovery.collection_radius_meters;
+  const selectedZoneDescription = selectedSecurityZone
+    ? securityZoneDescription(selectedSecurityZone.status)
+    : null;
   return (
     <>
       <div className="page-heading map-heading">
         <div>
           <p className="eyebrow">
-            <span className="live-dot" />{" "}
-            {zones.length ? "ZONA HABILITADA" : "UBICACIÓN ACTUAL"}
+            <span className="live-dot" /> MAPA GLOBAL DE SEGURIDAD
           </p>
           <h1>
             Sal a explorar<span>.</span>
@@ -566,14 +627,66 @@ function MapSection({
             <MapView
               position={position}
               discoveries={discoveries}
-              zones={zones}
+              securityZones={securityZones}
               selectedId={selectedId}
               onSelect={onSelect}
               onMapMove={onMapMove}
+              onViewportChange={onViewportChange}
+              onSecurityZoneSelect={onSecurityZoneSelect}
               zoom={mapZoom}
               onZoomChange={onZoomChange}
             />
+            <div className="security-map-legend" aria-label="Leyenda de seguridad">
+              <span>
+                <i className="security-swatch safe" />
+                Zona segura
+              </span>
+              <span>
+                <i className="security-swatch caution" />
+                Precaución
+              </span>
+              <span>
+                <i className="security-swatch restricted" />
+                Zona restringida
+              </span>
+              <span>
+                <i className="security-swatch unknown" />
+                Sin verificar
+              </span>
+            </div>
+            {securityZonesLoading && (
+              <p className="security-map-message" role="status">
+                Actualizando zonas de seguridad…
+              </p>
+            )}
+            {securityZonesError && (
+              <p className="security-map-message error" role="alert">
+                No se pudo cargar la capa de seguridad: {securityZonesError}
+              </p>
+            )}
           </div>
+          {selectedZoneDescription && (
+            <aside
+              className={`security-zone-detail status-${selectedSecurityZone.status}`}
+              role="status"
+              aria-live="polite"
+            >
+              <button
+                className="security-zone-close"
+                aria-label="Cerrar información de seguridad"
+                onClick={() => onSecurityZoneSelect(null)}
+              >
+                ×
+              </button>
+              <strong>{selectedZoneDescription.label}</strong>
+              <p>{selectedZoneDescription.message}</p>
+              <small>
+                {selectedSecurityZone.allowsPlay
+                  ? "El servidor indica que el juego está permitido."
+                  : "El servidor indica que el juego no está habilitado."}
+              </small>
+            </aside>
+          )}
           <div className="map-footer">
             <span>
               {position ? (
@@ -583,6 +696,9 @@ function MapSection({
               ) : (
                 "La ubicación se solicita solo cuando la pides"
               )}
+            </span>
+            <span>
+              {securityZones.features.length} zonas clasificadas en esta vista
             </span>
             <span>
               <i className="legend-coin" /> {discoveries.length} objetos

@@ -11,7 +11,12 @@ import { api, createIdempotencyKey } from "./api";
 jest.mock(
   "./MapView",
   () =>
-    function TestMapView({ discoveries, onSelect }) {
+    function TestMapView({
+      discoveries,
+      onSelect,
+      onViewportChange,
+      onSecurityZoneSelect,
+    }) {
       return (
         <div aria-label="Mapa de Crypto Go">
           {discoveries.map((discovery) => (
@@ -19,6 +24,28 @@ jest.mock(
               Seleccionar {discovery.name}
             </button>
           ))}
+          <button
+            onClick={() =>
+              onViewportChange({
+                west: -1,
+                south: -1,
+                east: 1,
+                north: 1,
+              })
+            }
+          >
+            Consultar vista del mapa
+          </button>
+          <button
+            onClick={() =>
+              onSecurityZoneSelect({
+                status: "restricted",
+                allowsPlay: false,
+              })
+            }
+          >
+            Seleccionar zona restringida
+          </button>
         </div>
       );
     },
@@ -44,6 +71,7 @@ jest.mock("./api", () => ({
     authenticateDevelopment: jest.fn(),
     nearby: jest.fn(),
     zones: jest.fn(),
+    securityZones: jest.fn(),
     collect: jest.fn(),
     inventory: jest.fn(),
     missions: jest.fn(),
@@ -90,6 +118,10 @@ beforeEach(() => {
   api.profile.mockResolvedValue(player);
   api.nearby.mockResolvedValue({ items: [], message: null });
   api.zones.mockResolvedValue({ items: [] });
+  api.securityZones.mockResolvedValue({
+    type: "FeatureCollection",
+    features: [],
+  });
   api.inventory.mockResolvedValue({
     items: [],
     history: [],
@@ -97,6 +129,46 @@ beforeEach(() => {
   });
   api.missions.mockResolvedValue({ items: [] });
   api.leaderboard.mockResolvedValue({ items: [] });
+});
+
+test("the security map requests only the visible bounds and keeps the legend visible", async () => {
+  render(<App />);
+  await screen.findByRole("heading", { name: /sal a explorar/i });
+
+  expect(screen.getByText("Zona segura")).toBeInTheDocument();
+  expect(screen.getByText("Precaución")).toBeInTheDocument();
+  expect(screen.getByText("Zona restringida")).toBeInTheDocument();
+  expect(screen.getByText("Sin verificar")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /consultar vista del mapa/i }));
+
+  await waitFor(() =>
+    expect(api.securityZones).toHaveBeenCalledWith(
+      { west: -1, south: -1, east: 1, north: 1 },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+  expect(await screen.findByText(/0 zonas clasificadas en esta vista/i))
+    .toBeInTheDocument();
+});
+
+test("security map errors are announced and a selected restricted zone shows no coordinates", async () => {
+  api.securityZones.mockRejectedValueOnce(new Error("Servicio no disponible."));
+  render(<App />);
+  await screen.findByRole("heading", { name: /sal a explorar/i });
+  fireEvent.click(screen.getByRole("button", { name: /consultar vista del mapa/i }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /no se pudo cargar la capa de seguridad: servicio no disponible/i,
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: /seleccionar zona restringida/i }),
+  );
+  expect(
+    screen.getByText(/no puedes jugar ni recoger objetos aquí/i),
+  ).toBeInTheDocument();
+  expect(screen.getByText(/el servidor indica que el juego no está habilitado/i))
+    .toBeInTheDocument();
+  expect(screen.queryByText(/latitude|longitude|coordenadas/i)).not.toBeInTheDocument();
 });
 
 test("offers Telegram or wallet login and authenticates with Telegram initData", async () => {

@@ -14,6 +14,7 @@ from ..database import get_db
 from ..geographic_safety import (
     classify_geographic_safety,
     classify_geographic_safety_batch,
+    security_zones_in_bounds,
 )
 from ..geo import haversine_meters, nearby_rows, point_is_in_enabled_zone
 from ..models import (
@@ -29,7 +30,13 @@ from ..models import (
     utcnow,
 )
 from ..rate_limit import increment_rate_limit
-from ..schemas import CollectRequest, CollectResponse, InventoryResponse, PlayerResponse
+from ..schemas import (
+    CollectRequest,
+    CollectResponse,
+    InventoryResponse,
+    PlayerResponse,
+    SecurityZoneCollection,
+)
 from ..security import get_current_player
 from .auth import _level_for_xp, _xp_for_next_level, _xp_into_level
 
@@ -170,6 +177,21 @@ def get_nearby_zones(
             if point_is_in_enabled_zone(db, latitude, longitude, zone.id)
         ]
     }
+
+
+@router.get("/security/zones/nearby", response_model=SecurityZoneCollection)
+def get_nearby_security_zones(
+    west: float = Query(ge=-180, le=180),
+    south: float = Query(ge=-90, lt=90),
+    east: float = Query(ge=-180, le=180),
+    north: float = Query(gt=-90, le=90),
+    player=Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    try:
+        return security_zones_in_bounds(db, west, south, east, north)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @router.post("/collectibles/collect", response_model=CollectResponse)

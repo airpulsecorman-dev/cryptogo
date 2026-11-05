@@ -115,18 +115,19 @@ Las pruebas del backend usan FastAPI `TestClient` y SQLite real con SQLAlchemy; 
 
 ### MapLibre
 
-- **Estado:** Implementado sin prueba de integración.
-- **Archivos:** `src/MapView.js`, `src/App.js`, `src/App.css`, `package.json`.
-- **Endpoints:** zonas y apariciones se consumen desde `/api/v1/zones/nearby` y `/api/v1/collectibles/nearby`; el estilo cartográfico usa OpenFreeMap por defecto o `REACT_APP_MAP_STYLE_URL`.
-- **Tablas:** `zones`, `spawn_instances`, `collectibles`.
-- **Prueba ejecutada:** build de producción pasó. Las pruebas React reemplazan `MapView`; no probaron WebGL, proveedor de tiles ni renderizado de navegador.
-- **Pendiente:** validar el mapa en navegador y la disponibilidad/uso del proveedor cartográfico.
+- **Estado:** Implementado con capa global de clasificación geográfica.
+- **Archivos:** `src/MapView.js`, `src/App.js`, `src/App.css`, `src/api.js`, `src/securityZones.js` y `backend/app/geographic_safety.py`, `backend/app/routers/game.py`, `backend/app/schemas.py`.
+- **Endpoints:** `/api/v1/security/zones/nearby` entrega solo polígonos que intersectan el rectángulo visible, con clasificación y permiso de juego calculados por el motor; `/api/v1/collectibles/nearby` conserva el filtrado de objetos del servidor. `/api/v1/zones/nearby` sigue siendo el contrato legado para zonas habilitadas y no se usa para inferir seguridad.
+- **Representación:** capas MapLibre separadas para seguro, precaución, restringido y desconocido explícito. La leyenda permanece visible; las áreas sin evidencia no generan polígonos. Al seleccionar una geometría solo se muestra el estado, el mensaje y el permiso devuelto por el servidor, sin coordenadas ni metadatos de evidencia.
+- **Respuesta vacía/error:** una colección vacía deja visible el mapa base y la leyenda, sin inventar cobertura gris; un error vacía la capa anterior y muestra un aviso. Las respuestas incluyen la geometría cartográfica requerida para pintar, pero no identificadores, fuentes ni razones internas.
+- **Pruebas ejecutadas:** tests React para los cuatro estados, validación de contrato, consulta por viewport, estado vacío y error; tests backend para los cuatro estados, superposición/precedencia, cambio de clasificación, filtros de límites, estado vacío y ausencia de metadatos privados. Aún requiere validación visual en navegador y PostGIS.
+- **Pendiente:** ejecutar suites locales y comprobar renderizado con WebGL y la disponibilidad del proveedor de tiles.
 
 ### Geolocalización y consulta de zonas/apariciones
 
-- **Estado:** Parcial.
+- **Estado:** Parcial; la capa de seguridad se consulta por área visible, mientras que los objetos siguen vinculados a GPS.
 - **Archivos:** `src/App.js`, `src/api.js`, `src/MapView.js`, `backend/app/routers/game.py`, `backend/app/geo.py`, `backend/app/models.py`.
-- **Endpoints:** `GET /api/v1/zones/nearby`, `GET /api/v1/collectibles/nearby`.
+- **Endpoints:** `GET /api/v1/security/zones/nearby` (clasificaciones por viewport), `GET /api/v1/zones/nearby` (contrato legado) y `GET /api/v1/collectibles/nearby`.
 - **Tablas:** `zones`, `spawn_instances`, `spawn_points`, `collectibles`.
 - **Prueba ejecutada:** tests backend verifican una aparición guardada y una zona habilitada mediante SQLite; tests UI simulan permisos GPS. El cliente envía coordenadas a las consultas y al POST de recolección.
 - **Pendiente:** permiso GPS real, consulta de geografía PostGIS y ubicación real no se probaron. En producción no hay zonas ni apariciones iniciales: un operador debe provisionar polígonos y puntos aprobados. No se crean coordenadas de juego por defecto.

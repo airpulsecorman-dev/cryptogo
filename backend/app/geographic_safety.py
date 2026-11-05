@@ -528,6 +528,165 @@ def classify_geographic_safety_batch(
     ]
 
 
+def security_zones_in_bounds(
+    db: Session,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    bounds = (west, south, east, north)
+    if (
+        not all(math.isfinite(value) for value in bounds)
+        or not -180 <= west <= 180
+        or not -180 <= east <= 180
+        or not -90 <= south < north <= 90
+    ):
+        raise ValueError("Invalid security map bounds.")
+
+    if db.bind.dialect.name == "postgresql":
+        if west <= east:
+            intersects = (
+                "ST_Intersects(geom, ST_MakeEnvelope(:west, :south, :east, :north, 4326))"
+            )
+            parameters = {
+                "west": west,
+                "south": south,
+                "east": east,
+                "north": north,
+            }
+        else:
+            intersects = (
+                "(ST_Intersects(geom, ST_MakeEnvelope(:west, :south, 180, :north, 4326)) "
+                "OR ST_Intersects(geom, ST_MakeEnvelope(-180, :south, :east, :north, 4326)))"
+            )
+            parameters = {
+                "west": west,
+                "south": south,
+                "east": east,
+                "north": north,
+            }
+        rows = db.execute(
+            text(
+                "SELECT id, CASE WHEN geom IS NULL THEN geometry_geojson "
+                "ELSE ST_AsGeoJSON(geom) END AS map_geometry, "
+                "geom IS NULL AS needs_geometry_validation, "
+                "security_status, place_type, "
+                "source_name, source_identifier, license_terms, access_status, "
+                "imported_at, verified_at, expires_at, confidence, validation_status, "
+                "rule_applied, policy_version, reason "
+                "FROM geographic_security_evidence "
+                "WHERE geom IS NULL OR (ST_IsValid(geom) "
+                "AND ST_GeometryType(geom) IN ('ST_Polygon', 'ST_MultiPolygon') "
+                f"AND {intersects})"
+            ),
+            parameters,
+        )
+        records = [dict(row._mapping) for row in rows]
+    else:
+        records = []
+        for record in db.scalars(select(GeographicSecurityEvidence)).all():
+            try:
+                geometry = json.loads(record.geometry_geojson or "")
+            except (TypeError, ValueError):
+                continue
+            if (
+                not isinstance(geometry, dict)
+                or geometry.get("type") not in {"Polygon", "MultiPolygon"}
+                or not _geometry_is_valid(geometry)
+                or not _geometry_bbox_intersects_bounds(
+                    geometry, west, south, east, north
+                )
+            ):
+                continue
+            records.append(
+                {**_record_data(record), "geometry": geometry, "geometry_valid": True}
+            )
+
+    current_time = _time_utc(now or utcnow())
+    features = []
+    for record in records:
+        geometry = record.pop("geometry", None)
+        if geometry is None:
+            try:
+                geometry = json.loads(
+                    record.pop("map_geometry", record.get("geometry_geojson")) or ""
+                )
+            except (TypeError, ValueError):
+                continue
+        if not isinstance(geometry, dict) or geometry.get("type") not in {
+            "Polygon",
+            "MultiPolygon",
+        }:
+            continue
+        needs_geometry_validation = record.pop("needs_geometry_validation", None)
+        if (
+            needs_geometry_validation is True
+            or (needs_geometry_validation is None and record["geometry_valid"] is not True)
+        ) and not _geometry_is_valid(geometry):
+            continue
+        if not _geometry_bbox_intersects_bounds(geometry, west, south, east, north):
+            continue
+        record["geometry_valid"] = True
+        decision = _evaluate_candidates([record], current_time)
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": geometry,
+                "properties": {
+                    "security_status": decision.status,
+                    "allows_play": decision.allows_collection,
+                },
+            }
+        )
+
+    features.sort(
+        key=lambda feature: _PRECEDENCE[
+            feature["properties"]["security_status"]
+        ]
+    )
+    return {"type": "FeatureCollection", "features": features}
+
+
+def _geometry_bbox_intersects_bounds(
+    geometry: dict, west: float, south: float, east: float, north: float
+) -> bool:
+    coordinates = geometry.get("coordinates")
+    points = []
+
+    def collect(value):
+        if (
+            isinstance(value, list)
+            and len(value) >= 2
+            and isinstance(value[0], (int, float))
+            and isinstance(value[1], (int, float))
+        ):
+            points.append((float(value[0]), float(value[1])))
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(coordinates)
+    if not points:
+        return False
+    min_longitude = min(point[0] for point in points)
+    max_longitude = max(point[0] for point in points)
+    min_latitude = min(point[1] for point in points)
+    max_latitude = max(point[1] for point in points)
+    longitude_intersects = (
+        min_longitude <= east and max_longitude >= west
+        if west <= east
+        else max_longitude >= west or min_longitude <= east
+    )
+    return (
+        longitude_intersects
+        and min_latitude <= north
+        and max_latitude >= south
+    )
+
+
 def persist_geographic_evidence(
     db: Session,
     evidence: GeographicSecurityEvidence,

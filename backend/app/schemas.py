@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -141,6 +142,22 @@ class ZoneResponse(BaseModel):
     id: UUID
     name: str
     boundary: dict
+
+
+class SecurityZoneProperties(BaseModel):
+    security_status: Literal["safe", "caution", "restricted", "unknown"]
+    allows_play: bool
+
+
+class SecurityZoneFeature(BaseModel):
+    type: Literal["Feature"]
+    geometry: dict
+    properties: SecurityZoneProperties
+
+
+class SecurityZoneCollection(BaseModel):
+    type: Literal["FeatureCollection"]
+    features: list[SecurityZoneFeature]
 
 
 class MissionResponse(BaseModel):
